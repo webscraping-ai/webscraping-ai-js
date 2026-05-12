@@ -4,10 +4,11 @@ All notable changes to `webscraping-ai` will be documented in this file.
 
 ## 4.0.0 — 2026-05-12
 
-First release of the hand-authored JavaScript / TypeScript client. This is a
-clean break from any earlier OpenAPI-generated client under the same package
-name; the public surface is entirely new and intentionally not source-compatible
-with prior versions.
+First release of the official JavaScript / TypeScript client.
+
+The version starts at `4.0.0` to keep the version line aligned with the
+other hand-authored WebScraping.AI SDKs (Ruby, Python, PHP — all at 4.0.x);
+there is no `webscraping-ai` 1.x / 2.x / 3.x on npm.
 
 ### Highlights
 
@@ -24,9 +25,3 @@ with prior versions.
   failures.
 - `WEBSCRAPING_AI_API_KEY` is read from the environment as a fallback when no
   `apiKey` is passed to the constructor.
-
-### Migration from 3.x
-
-3.x was OpenAPI-generated and had a class-per-tag layout
-(`HTMLApi`, `TextApi`, …). 4.0 has no deprecation shims and no compatibility
-layer; if you cannot update call sites, stay on the 3.x line.

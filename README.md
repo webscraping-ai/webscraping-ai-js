@@ -2,9 +2,6 @@
 
 Official JavaScript / TypeScript client for the [WebScraping.AI](https://webscraping.ai) API.
 
-> **4.0 is a hard break from earlier OpenAPI-generated SDKs.** The package has
-> a new, idiomatic public surface — see [CHANGELOG.md](CHANGELOG.md).
-
 ## Install
 
 ```bash
