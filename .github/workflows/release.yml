@@ -1,0 +1,90 @@
+name: Release
+
+# Publishes to npm when a GitHub Release is published. Uses npm trusted
+# publishing (OIDC) — no NPM_TOKEN in repo secrets.
+#
+# One-time setup:
+#   - npmjs.com → webscraping-ai → Settings → Trusted Publishers → add
+#     GitHub Actions:
+#       Organization or user: webscraping-ai
+#       Repository:           webscraping-ai-js
+#       Workflow filename:    release.yml
+#       Environment:          npm
+#   - GitHub repo → Settings → Environments → create environment "npm".
+#     Add reviewers there if you want an approval gate before publish.
+#
+# Release flow:
+#   1. Bump version in package.json AND src/version.ts (must match), commit, push.
+#   2. Create a GitHub Release with tag vX.Y.Z (matching package.json).
+#   3. This workflow verifies the tag, runs tests + build, and publishes.
+#
+# For `release: published` events, GitHub Actions runs the workflow file
+# from the tag's commit — not from the default branch. If you push a fix
+# to this workflow after tagging, force-move the tag (or cut a new one).
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance and trusted publishing
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        # No registry-url here on purpose: setup-node would otherwise write
+        # an .npmrc with `_authToken=${NODE_AUTH_TOKEN}` (empty), which npm
+        # sends as a failed auth attempt and returns 404 instead of falling
+        # back to OIDC trusted publishing.
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Upgrade npm
+        # npm 11.5.1+ is required for OIDC trusted publishing. Node 22 may
+        # ship with an older npm depending on the runner image — pin to
+        # latest to guarantee the OIDC handshake works.
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag, package.json, and src/version.ts agree
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          SRC=$(node -e "console.log(require('fs').readFileSync('src/version.ts','utf8').match(/'([^']+)'/)[1])")
+          echo "Tag (stripped): $TAG"
+          echo "package.json:   $PKG"
+          echo "src/version.ts: $SRC"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG"
+            exit 1
+          fi
+          if [ "$SRC" != "$PKG" ]; then
+            echo "::error::src/version.ts ($SRC) does not match package.json ($PKG)"
+            exit 1
+          fi
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish
+        run: npm publish --provenance --access public

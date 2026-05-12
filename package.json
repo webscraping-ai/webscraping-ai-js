@@ -1,0 +1,72 @@
+{
+  "name": "webscraping-ai",
+  "version": "4.0.0",
+  "description": "Official JavaScript/TypeScript client for the WebScraping.AI API.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "smoke": "tsx bin/smoke.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "webscraping",
+    "scraping",
+    "api",
+    "llm",
+    "crawler",
+    "web-scraping"
+  ],
+  "license": "MIT",
+  "author": "WebScraping.AI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webscraping-ai/webscraping-ai-js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/webscraping-ai/webscraping-ai-js/issues"
+  },
+  "homepage": "https://github.com/webscraping-ai/webscraping-ai-js#readme",
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "globals": "^17.6.0",
+    "prettier": "^3.4.2",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
