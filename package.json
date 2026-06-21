@@ -1,6 +1,6 @@
 {
   "name": "webscraping-ai",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "Official JavaScript/TypeScript client for the WebScraping.AI API.",
   "type": "module",
   "main": "./dist/index.cjs",

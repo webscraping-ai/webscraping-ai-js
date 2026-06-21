@@ -2,6 +2,13 @@
 
 All notable changes to `webscraping-ai` will be documented in this file.
 
+## 4.0.1 — 2026-06-21
+
+### Fixed
+
+- The per-request timeout now also covers reading the response body: a stalled `response.json()` / `response.text()` is aborted and surfaced as `APITimeoutError` instead of hanging past `timeoutMs`.
+- `selector` (`selected`) and `selectors` (`selectedMultiple`) are now optional in the TypeScript types; omitting them returns whole-page HTML, matching the API.
+
 ## 4.0.0 — 2026-05-12
 
 First release of the official JavaScript / TypeScript client.
