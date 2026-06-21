@@ -47,4 +47,35 @@ describe('transport error wrapping', () => {
     );
     expect(abortedSignalled).toBe(true);
   });
+
+  it('times out when the response body read hangs past timeoutMs', async () => {
+    let bodyReadAborted = false;
+    const fn = vi.fn((_input: unknown, init?: RequestInit): Promise<Response> => {
+      // Resolve the response (headers received) immediately, but make the
+      // body read hang until the abort signal fires.
+      const response = {
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => {
+              bodyReadAborted = true;
+              const err = new Error('aborted');
+              err.name = 'AbortError';
+              reject(err);
+            });
+            // Never resolve — wait for the abort.
+          }),
+        text: () => Promise.resolve(''),
+      } as unknown as Response;
+      return Promise.resolve(response);
+    }) as unknown as typeof fetch;
+
+    const client = new WebScrapingAI({ apiKey: 'k', fetch: fn, timeoutMs: 10 });
+    await expect(client.html({ url: 'https://example.com' })).rejects.toBeInstanceOf(
+      APITimeoutError,
+    );
+    expect(bodyReadAborted).toBe(true);
+  });
 });

@@ -70,13 +70,15 @@ export interface TextOptions extends CommonRequestOptions {
 
 export interface SelectedOptions extends CommonRequestOptions {
   url: string;
-  selector: string;
+  /** CSS selector of the area to return. Omit to return the whole-page HTML. */
+  selector?: string;
   format?: 'json' | 'text';
 }
 
 export interface SelectedMultipleOptions extends CommonRequestOptions {
   url: string;
-  selectors: readonly string[];
+  /** CSS selectors of the areas to return. Omit to return the whole-page HTML. */
+  selectors?: readonly string[];
 }
 
 export interface QuestionOptions extends CommonRequestOptions {

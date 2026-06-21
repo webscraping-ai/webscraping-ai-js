@@ -14,6 +14,7 @@ import {
   APIConnectionError,
   APIError,
   APITimeoutError,
+  WebScrapingAIError,
   STATUS_TO_ERROR,
   type APIErrorInit,
 } from './errors.js';
@@ -41,24 +42,33 @@ export async function request(opts: RequestOptions): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
 
-  let response: Response;
   try {
-    response = await opts.fetchImpl(url, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json, text/plain, text/html, */*',
-        'User-Agent': opts.userAgent,
-      },
-      signal: controller.signal,
-    });
-  } catch (err) {
-    throw wrapFetchError(err);
+    let response: Response;
+    try {
+      response = await opts.fetchImpl(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json, text/plain, text/html, */*',
+          'User-Agent': opts.userAgent,
+        },
+        signal: controller.signal,
+      });
+    } catch (err) {
+      throw wrapFetchError(err);
+    }
+
+    // Keep the timeout active until the body is fully read: a stalled body
+    // read must still be aborted by the timer (and surfaced as a timeout),
+    // not hang forever after the response headers arrive.
+    try {
+      await raiseForStatus(response);
+      return await parseResponse(response);
+    } catch (err) {
+      throw wrapBodyError(err);
+    }
   } finally {
     clearTimeout(timer);
   }
-
-  await raiseForStatus(response);
-  return parseResponse(response);
 }
 
 async function parseResponse(response: Response): Promise<unknown> {
@@ -105,6 +115,15 @@ function safeParseErrorBody(text: string): ErrorPayload {
     // fall through
   }
   return {};
+}
+
+function wrapBodyError(err: unknown): Error {
+  // Typed errors from this library (e.g. APIError subclasses raised by
+  // `raiseForStatus`) must propagate unchanged. Anything else — an abort
+  // during the body read, a stream/network failure — is a transport error
+  // and gets mapped to APITimeoutError / APIConnectionError.
+  if (err instanceof WebScrapingAIError) return err;
+  return wrapFetchError(err);
 }
 
 function wrapFetchError(err: unknown): Error {
