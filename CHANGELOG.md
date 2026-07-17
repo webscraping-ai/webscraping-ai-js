@@ -2,6 +2,12 @@
 
 All notable changes to `webscraping-ai` will be documented in this file.
 
+## 4.0.2 — 2026-07-17
+
+### Changed
+
+- Documentation: expanded README — API docs, signup/dashboard links, badges, and links to the other official clients; package metadata homepage now points to https://webscraping.ai where it previously pointed at GitHub.
+
 ## 4.0.1 — 2026-06-21
 
 ### Fixed
