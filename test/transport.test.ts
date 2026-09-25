@@ -26,6 +26,16 @@ describe('transport error wrapping', () => {
     );
   });
 
+  it('redacts api_key from transport error messages', async () => {
+    // Real runtime, no stub: undici rejects the malformed URL with
+    // "Failed to parse URL from <url>", which includes the query string.
+    const client = new WebScrapingAI({ apiKey: 'SECRETKEY123', baseUrl: 'http://bad host' });
+    const err = await client.serp({ q: 'coffee' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(APIConnectionError);
+    expect((err as Error).message).not.toContain('SECRETKEY123');
+    expect((err as Error).message).toContain('api_key=[REDACTED]');
+  });
+
   it('honors the per-client timeoutMs (AbortController fires)', async () => {
     let abortedSignalled = false;
     const fn = vi.fn(

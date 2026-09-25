@@ -10,6 +10,10 @@ All notable changes to `webscraping-ai` will be documented in this file.
 - `serp()` validates its input before sending: a non-string, empty or whitespace-only `q`, or a `page` that isn't a safe integer >= 1 (`NaN`, `1.5`, `0`, `-3`, `1e21`, ...), rejects with `WebScrapingAIError` and no request is made (the server would silently treat an invalid page as page 1 and still charge). `q` is sent untrimmed. The server caps `page` at 100.
 - `bin/smoke.ts` now asserts on result shape (non-empty results, SERP `organic_results` and echoed `q`, a non-empty `selected_multiple` match, `fields` `result` key), runs page tools with `js: false` + datacenter proxy (~31 credits; README's old "~17" was wrong), catches every error per case, redacts the API key from failure output and collapses whitespace in previews.
 
+### Fixed
+
+- Transport errors no longer expose the API key: runtime error text can embed the request URL (e.g. `Failed to parse URL from …` for a malformed `baseUrl`), and `api_key=…` is now replaced with `api_key=[REDACTED]` in `APIConnectionError`/`APITimeoutError` messages.
+
 ## 4.0.2 — 2026-07-17
 
 ### Changed

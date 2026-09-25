@@ -126,16 +126,24 @@ function wrapBodyError(err: unknown): Error {
   return wrapFetchError(err);
 }
 
+// Runtime error text can embed the request URL (e.g. undici's "Failed to parse
+// URL from <url>" for a malformed baseUrl), and the URL carries api_key in its
+// query string — so scrub it before it lands in logs.
+function redact(message: string): string {
+  return message.replace(/api_key=[^&\s"'<>]*/g, 'api_key=[REDACTED]');
+}
+
 function wrapFetchError(err: unknown): Error {
   if (err instanceof Error) {
+    const message = redact(err.message);
     if (err.name === 'AbortError' || err.name === 'TimeoutError') {
-      return new APITimeoutError(err.message || 'Request timed out');
+      return new APITimeoutError(message || 'Request timed out');
     }
     // DOMException with AbortError name on some runtimes
     if ((err as { code?: string }).code === 'ABORT_ERR') {
-      return new APITimeoutError(err.message || 'Request timed out');
+      return new APITimeoutError(message || 'Request timed out');
     }
-    return new APIConnectionError(err.message || 'Connection failed');
+    return new APIConnectionError(message || 'Connection failed');
   }
-  return new APIConnectionError(String(err));
+  return new APIConnectionError(redact(String(err)));
 }
