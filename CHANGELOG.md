@@ -3,6 +3,7 @@
 All notable changes to `webscraping-ai` will be documented in this file.
 
 ## 4.2.0 — 2026-09-25
+
 ### Added
 
 - `data({ url, country?, transcript?, transcript_language?, params? })` for the new `/data` endpoint: structured JSON for a page on a supported site (e.g. YouTube, TikTok, X, LinkedIn, Instagram, Reddit; more are added server-side). Resolves to the new exported `DataResult<T = Record<string, unknown>>` (`request_parameters: DataRequestParameters`, `parse_status: string`, `data: T | null`); `DataOptions`, `DataRequestParameters` and `ExtraParamValue` are exported too. 15 credits per request.
