@@ -36,6 +36,34 @@ describe('transport error wrapping', () => {
     expect((err as Error).message).toContain('api_key=[REDACTED]');
   });
 
+  it('data: redacts api_key from transport error messages and the cause chain', async () => {
+    const client = new WebScrapingAI({ apiKey: 'SECRETKEY123', baseUrl: 'http://bad host' });
+    const err = await client
+      .data({ url: 'https://www.youtube.com/watch?v=x' })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(APIConnectionError);
+    expect((err as Error).message).toContain('api_key=[REDACTED]');
+    let cur: unknown = err;
+    for (let depth = 0; cur instanceof Error && depth < 10; depth++) {
+      expect(cur.message).not.toContain('SECRETKEY123');
+      expect(String(cur.stack ?? '')).not.toContain('SECRETKEY123');
+      cur = (cur as Error & { cause?: unknown }).cause;
+    }
+  });
+
+  it('data: redacts a stubbed transport error that embeds the full request URL', async () => {
+    // Realistic shape: the HTTP library puts the whole URL (with api_key) in the message.
+    const fn = vi.fn(async (input: string | URL | Request) => {
+      throw new TypeError(`request to ${String(input)} failed, reason: ECONNRESET`);
+    }) as unknown as typeof fetch;
+    const client = new WebScrapingAI({ apiKey: 'SECRETKEY123', fetch: fn });
+    const err = await client.data({ url: 'https://www.youtube.com/watch?v=x' }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(APIConnectionError);
+    expect((err as Error).message).toContain('api_key=[REDACTED]');
+    expect((err as Error).message).not.toContain('SECRETKEY123');
+  });
+
   it('honors the per-client timeoutMs (AbortController fires)', async () => {
     let abortedSignalled = false;
     const fn = vi.fn(

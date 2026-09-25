@@ -2,10 +2,12 @@
 /**
  * Hand-run smoke test against the live API. Not part of the test suite.
  *
- * Costs ~32 credits per full sweep: account (free), 4 page calls
+ * Costs ~46 credits per full sweep: account (free), 4 page calls
  * (html/text/selected/selected_multiple) with js=false + datacenter proxy at
- * 1 credit each, question + fields at 6 each (datacenter, no JS), and one
- * SERP search at 15 -> 4 + 12 + 15 = 31.
+ * 1 credit each, question + fields at 6 each (datacenter, no JS), one SERP
+ * search at 15 and one /data call at 15 -> 4 + 12 + 15 + 15 = 46. The second
+ * /data case (example.com) is a free 400: it proves the *server*, not the
+ * client, rejects unsupported sites.
  *
  * Each case asserts on the shape of the result, not just the absence of an
  * exception; any failure prints a FAIL line and the script exits 1.
@@ -16,7 +18,7 @@
  *   WEBSCRAPING_AI_API_KEY=... npx tsx bin/smoke.ts
  */
 
-import { WebScrapingAI } from '../src/index.js';
+import { BadRequestError, WebScrapingAI } from '../src/index.js';
 
 const apiKey = process.env.WEBSCRAPING_AI_API_KEY ?? process.env.WEBSCRAPING_AI_KEY;
 if (!apiKey) {
@@ -30,6 +32,22 @@ const page = { js: false, proxy: 'datacenter' } as const;
 
 /** Returns a failure reason, or null when the result looks right. */
 type Check = (result: unknown) => string | null;
+
+/**
+ * Wraps a call that the server must reject with a 400. Resolves to a
+ * "400 ..." string on a `BadRequestError`; a success resolves to the raw
+ * result (which the check then fails) and any other error propagates.
+ */
+async function expectBadRequest(call: () => Promise<unknown>): Promise<unknown> {
+  try {
+    return await call();
+  } catch (err) {
+    if (err instanceof BadRequestError && err.status === 400) {
+      return `400 BadRequestError: ${err.message}`;
+    }
+    throw err;
+  }
+}
 
 function nonEmpty(value: unknown): boolean {
   if (typeof value === 'string') return value.trim() !== '';
@@ -86,6 +104,33 @@ const cases: Array<[string, () => Promise<unknown>, Check]> = [
         ? null
         : `search_parameters.q is ${JSON.stringify(q)}, expected "coffee machines"`;
     },
+  ],
+  [
+    'data',
+    () => client.data({ url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }),
+    (r) => {
+      const d = r as {
+        parse_status?: unknown;
+        request_parameters?: { provider?: unknown };
+        data?: { title?: unknown } | null;
+      };
+      if (d?.parse_status !== 'ok') return `parse_status is ${JSON.stringify(d?.parse_status)}`;
+      if (d.request_parameters?.provider !== 'youtube') {
+        return `request_parameters.provider is ${JSON.stringify(d.request_parameters?.provider)}`;
+      }
+      const title = d.data?.title;
+      return typeof title === 'string' && title.trim() !== ''
+        ? null
+        : 'data is null or has no non-empty title';
+    },
+  ],
+  [
+    'data_unsupported',
+    () => expectBadRequest(() => client.data({ url: 'https://example.com/' })),
+    (r) =>
+      typeof r === 'string' && r.startsWith('400 ') && r.includes('Unsupported URL')
+        ? null
+        : 'expected the server to answer 400 (BadRequestError) with "Unsupported URL"',
   ],
 ];
 

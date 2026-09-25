@@ -36,7 +36,19 @@ export interface RequestOptions {
 
 export async function request(opts: RequestOptions): Promise<unknown> {
   const merged: Params = { api_key: opts.apiKey, ...opts.params };
-  const query = encodeToString(merged);
+  let query: string;
+  try {
+    query = encodeToString(merged);
+  } catch (err) {
+    // encodeURIComponent throws URIError on an unpaired UTF-16 surrogate
+    // (e.g. '\uD800'). Don't echo the value: it could be the API key.
+    if (err instanceof URIError) {
+      throw new WebScrapingAIError(
+        'A request parameter contains an invalid string (unpaired UTF-16 surrogate) and cannot be URL-encoded.',
+      );
+    }
+    throw err;
+  }
   const url = `${opts.baseUrl}${opts.path}${query ? `?${query}` : ''}`;
 
   const controller = new AbortController();

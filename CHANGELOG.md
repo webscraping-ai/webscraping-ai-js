@@ -2,6 +2,19 @@
 
 All notable changes to `webscraping-ai` will be documented in this file.
 
+## 4.2.0 — 2026-09-25
+### Added
+
+- `data({ url, country?, transcript?, transcript_language?, params? })` for the new `/data` endpoint: structured JSON for a page on a supported site (e.g. YouTube, TikTok, X, LinkedIn, Instagram, Reddit; more are added server-side). Resolves to the new exported `DataResult<T = Record<string, unknown>>` (`request_parameters: DataRequestParameters`, `parse_status: string`, `data: T | null`); `DataOptions`, `DataRequestParameters` and `ExtraParamValue` are exported too. 15 credits per request.
+- The URL is sent exactly as given and never checked against a list of sites. An unsupported URL or page type returns a 400 (`BadRequestError`) that is not charged; its message lists what is supported. A non-string or blank `url` rejects with `WebScrapingAIError` and no request is made.
+- `transcript` (YouTube videos only) also fetches the video's transcript into `data.transcript`; it's null when no matching captions are available, and if the transcript fetch itself fails the whole request fails with a 500 (`ServerError`) and is not charged.
+- `params` escape hatch on `data()` **and `serp()`**: extra query parameters sent as-is, for options added server-side later. Values must be strings, finite numbers or booleans (`null`/`undefined` are omitted). Rejected with `WebScrapingAIError`, before any request: `api_key`, `__proto__`, the endpoint's required argument (`url` / `q`), and any named option name (`country`/`transcript`/`transcript_language` on `data`, `engine`/`gl`/`hl`/`page` on `serp`) — use the named option instead.
+- `bin/smoke.ts` adds a YouTube `/data` call (asserts `parse_status` `ok`, provider `youtube`, a non-empty `data.title`) and an example.com call that must be rejected by the server with a 400 whose message contains `Unsupported URL` (~46 credits per sweep).
+
+### Fixed
+
+- A string containing an unpaired UTF-16 surrogate (e.g. `'\uD800'`) in any parameter, on any endpoint, now rejects with `WebScrapingAIError` instead of a raw `URIError` from `encodeURIComponent`.
+
 ## 4.1.0 — 2026-09-25
 
 ### Added

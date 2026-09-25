@@ -110,6 +110,13 @@ export interface SerpOptions {
    * Must be an integer >= 1; the server rejects values above 100 with a 400 (not billed).
    */
   page?: number;
+  /**
+   * Extra query parameters sent as-is, for options added server-side after
+   * this SDK version. Same rules as `DataOptions.params`: scalar values only;
+   * `api_key`, `q`, `__proto__` and the named options (`engine`, `gl`, `hl`,
+   * `page`) are rejected.
+   */
+  params?: Readonly<Record<string, ExtraParamValue>>;
 }
 
 /** One organic (non-ad) result, in rank order. */
@@ -159,6 +166,76 @@ export interface SerpResult {
     /** Next page number; omitted when there is no further page. */
     next?: number;
   };
+}
+
+/**
+ * A scalar value accepted in the `params` escape hatch of `data()` / `serp()`.
+ * Numbers must be finite; `null`/`undefined` mean "omit".
+ */
+export type ExtraParamValue = string | number | boolean | null | undefined;
+
+/**
+ * Options for `data()`. URL-shaped, but none of the page-scraping options in
+ * `CommonRequestOptions` apply to `/data` (the server picks fetching, proxy
+ * and parsing per site).
+ */
+export interface DataOptions {
+  /**
+   * URL of a page on a supported site, e.g. a YouTube video, TikTok profile,
+   * X post, LinkedIn company, Instagram reel or Reddit thread. Required; must
+   * be a non-blank string, and is sent exactly as given. It is **not**
+   * checked against a list of sites: more are added server-side. An
+   * unsupported URL or page type returns a 400 (`BadRequestError`) that is
+   * not charged; its message lists what is supported.
+   */
+  url: string;
+  /** Two-letter country code of the proxy used to fetch the page, `us` by default. */
+  country?: string;
+  /**
+   * YouTube videos only. Also fetch the video's transcript into
+   * `data.transcript`. It's null when no matching captions are available. If
+   * the transcript fetch itself fails, the whole request fails with a 500
+   * (`ServerError`) and is not charged.
+   */
+  transcript?: boolean;
+  /**
+   * Caption language to pick, e.g. `en` or `de`. Without it, English is
+   * preferred, then the first available track. If the video has no captions
+   * in that language, `data.transcript` is null.
+   */
+  transcript_language?: string;
+  /**
+   * Extra query parameters sent as-is, for site-specific options added
+   * server-side after this SDK version. Values must be strings, finite
+   * numbers or booleans (`null`/`undefined` are omitted). `api_key`, `url`,
+   * `__proto__` and the named options above (`country`, `transcript`,
+   * `transcript_language`) are rejected: use the named option instead.
+   */
+  params?: Readonly<Record<string, ExtraParamValue>>;
+}
+
+/** How `/data` classified the requested URL. */
+export interface DataRequestParameters {
+  url: string;
+  /** Detected site, e.g. 'youtube'. An open set: new sites are added server-side. */
+  provider: string;
+  /** Detected page kind, e.g. 'video', 'profile'. Also an open set. */
+  type: string;
+}
+
+/**
+ * Structured page data returned by `GET /data`. The shape of `data` depends on
+ * `request_parameters.provider` and `.type`; pass your own `T` to narrow it.
+ */
+export interface DataResult<T = Record<string, unknown>> {
+  request_parameters: DataRequestParameters;
+  /**
+   * 'ok', 'parse_failed' (fetched but not parsed; `data` may be null or
+   * partial) or 'not_found'. All three are charged successes. Kept as a
+   * plain string so new values round-trip.
+   */
+  parse_status: string;
+  data: T | null;
 }
 
 export class WebScrapingAI {
@@ -244,14 +321,51 @@ export class WebScrapingAI {
         new WebScrapingAIError('q is required and must be a non-empty, non-whitespace string.'),
       );
     }
-    const { q, engine, gl, hl, page } = options;
+    const { q, engine, gl, hl, page, params } = options;
     // isSafeInteger, not isInteger: 1e21 is an "integer" but serializes as
     // "1e+21", which the server rejects with a 400 (not billed); checking
     // client-side saves the round trip.
     if (page !== undefined && (!Number.isSafeInteger(page) || page < 1)) {
       return Promise.reject(new WebScrapingAIError('page must be an integer >= 1.'));
     }
-    return this.get('/serp', { q, engine, gl, hl, page }) as Promise<SerpResult>;
+    let extra: Params;
+    try {
+      extra = extraParams(params, ['q'], ['engine', 'gl', 'hl', 'page']);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+    return this.get('/serp', { q, engine, gl, hl, page, ...extra }) as Promise<SerpResult>;
+  }
+
+  /**
+   * `GET /data` — structured JSON for a page on a supported site (e.g.
+   * YouTube, TikTok, X, LinkedIn, Instagram, Reddit; more are added
+   * server-side). Flat 15 credits per request, including `parse_failed` and
+   * `not_found` results; failed fetches are not charged.
+   *
+   * The URL is sent unmodified and never checked against a list of sites.
+   * An unsupported URL or page type returns a 400 (`BadRequestError`) that is
+   * not charged; its message lists what is supported.
+   *
+   * Rejects with `WebScrapingAIError` (no request sent) when `url` is not a
+   * non-blank string, or `params` has a reserved/named key or a value that
+   * isn't a string, finite number or boolean.
+   */
+  data<T = Record<string, unknown>>(options: DataOptions): Promise<DataResult<T>> {
+    if (typeof options?.url !== 'string' || options.url.trim() === '') {
+      return Promise.reject(
+        new WebScrapingAIError('url is required and must be a non-empty, non-whitespace string.'),
+      );
+    }
+    const { url, country, transcript, transcript_language, params } = options;
+    let extra: Params;
+    try {
+      extra = extraParams(params, ['url'], ['country', 'transcript', 'transcript_language']);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+    const query: Params = { url, country, transcript, transcript_language, ...extra };
+    return this.get('/data', query) as Promise<DataResult<T>>;
   }
 
   /** `GET /account` — credit / quota info for the API key. */
@@ -270,6 +384,48 @@ export class WebScrapingAI {
       userAgent: this.userAgent,
     });
   }
+}
+
+/**
+ * Validates a `params` escape hatch and returns it as query params. Throws
+ * `WebScrapingAIError` on a non-object, a reserved key (`api_key`, `__proto__`,
+ * the endpoint's required arg), a key that repeats a named option (use the
+ * option instead), or a value that isn't a string, finite number or boolean.
+ */
+function extraParams(
+  params: unknown,
+  required: readonly string[],
+  named: readonly string[],
+): Params {
+  // Null prototype: a `__proto__` key can't reach Object.prototype (and is
+  // rejected below anyway).
+  const out: Params = Object.create(null) as Params;
+  if (params === undefined || params === null) return out;
+  if (typeof params !== 'object' || Array.isArray(params)) {
+    throw new WebScrapingAIError('params must be a plain object.');
+  }
+  for (const [key, value] of Object.entries(params)) {
+    if (key === 'api_key') {
+      throw new WebScrapingAIError('params must not contain "api_key"; set it on the client.');
+    }
+    if (key === '__proto__') {
+      throw new WebScrapingAIError('params must not contain "__proto__".');
+    }
+    if (required.includes(key) || named.includes(key)) {
+      throw new WebScrapingAIError(
+        `params must not contain "${key}"; use the named \`${key}\` option instead.`,
+      );
+    }
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      throw new WebScrapingAIError(`params.${key} must be a finite number.`);
+    }
+    if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+      throw new WebScrapingAIError(`params.${key} must be a string, number or boolean.`);
+    }
+    out[key] = value;
+  }
+  return out;
 }
 
 function readEnvApiKey(): string | undefined {

@@ -57,6 +57,10 @@ const fields = await client.fields({
   fields: { title: 'Main product title', price: 'Current product price' },
 });
 
+// Structured data for a page on a supported site (YouTube, TikTok, X, LinkedIn, Instagram, Reddit, ...)
+const video = await client.data({ url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' });
+console.log(video.request_parameters.provider, video.data?.title);
+
 // Account quota
 const info = await client.account();
 ```
@@ -67,6 +71,9 @@ const info = await client.account();
 `engine` (`'google'`, the default), `gl` (country, default `'us'`), `hl`
 (language, default `'en'`) and `page` (1–100, 10 results per page; the server
 rejects values above 100 with a 400) — none of the page-scraping options apply.
+`params` passes extra scalar query parameters through as-is, with the same
+rules as `data()`'s (`api_key`, `q`, `__proto__` and the named option names
+are rejected).
 Flat 15 credits per search; failed searches are not charged.
 
 The client validates before sending: an empty or whitespace-only `q`, or a
@@ -88,6 +95,64 @@ const nextPage = serp.pagination.next; // undefined on the last page
 Optional fields (`snippet`, `date`, `related_searches`, `pagination.next`,
 `search_information.showing_results_for` / `total_results`) are omitted from
 the response when absent, not set to `null`.
+
+### Structured data for supported sites (`/data`)
+
+`data()` returns structured JSON for a public page on a supported site — for
+example a YouTube video, TikTok profile, X post, LinkedIn company, Instagram
+reel or Reddit thread. Pass the page's normal URL; the site (`provider`) and
+page kind (`type`) are detected server-side. More sites and page types are
+added on the server over time, so the client does **not** check the URL
+against a list and sends it exactly as given. An unsupported URL or page type
+returns a 400 (`BadRequestError`) that is not charged; its message lists what
+is supported. The only client-side check is that `url` is a non-blank string.
+
+Options:
+
+- `url` (required).
+- `country`: two-letter country code of the proxy used to fetch the page, `us`
+  by default.
+- `transcript`: YouTube videos only. Also fetch the video's transcript into
+  `data.transcript`. It's null when no matching captions are available. If the
+  transcript fetch itself fails, the whole request fails with a 500
+  (`ServerError`) and is not charged.
+- `transcript_language`: caption language to pick, e.g. `en` or `de`. Without
+  it, English is preferred, then the first available track. If the video has
+  no captions in that language, `data.transcript` is null.
+- `params`: escape hatch for site-specific parameters added after this SDK
+  version, sent as-is. Values must be strings, finite numbers or booleans
+  (`null`/`undefined` are omitted). `api_key`, `url`, `__proto__` and the
+  named option names (`country`, `transcript`, `transcript_language`) are
+  rejected with `WebScrapingAIError`: use the named option instead.
+
+None of the page-scraping options apply. 15 credits per request, including
+pages that parse empty (`parse_failed`) or no longer exist (`not_found`);
+failed fetches are not charged.
+
+```ts
+import { WebScrapingAI, BadRequestError, type DataResult } from 'webscraping-ai';
+
+const video: DataResult = await client.data({
+  url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+  transcript: true,
+});
+console.log(video.request_parameters.provider, video.request_parameters.type); // youtube video
+if (video.parse_status === 'ok') console.log(video.data?.title);
+
+// Narrow `data` with your own type (it is untyped JSON; the shape depends on provider/type):
+const post = await client.data<{ title: string; score: number }>({
+  url: 'https://www.reddit.com/r/programming/comments/abc123/example/',
+});
+
+try {
+  await client.data({ url: 'https://example.com/' });
+} catch (err) {
+  if (err instanceof BadRequestError) console.log(err.message); // "Unsupported URL for /data. ..." (lists what is supported)
+}
+```
+
+`provider`, `type` and `parse_status` are plain strings (new values appear as
+sites are added), and `data` is `null` when nothing could be parsed.
 
 The constructor reads `WEBSCRAPING_AI_API_KEY` from the environment as a
 fallback when running on Node, Deno, or Bun:
@@ -182,10 +247,11 @@ npm run lint
 npm run build      # tsup → dist/{index.js,index.cjs,index.d.ts}
 ```
 
-Live smoke (hits production, ~31 credits: page tools run with `js: false` and
-the datacenter proxy at 1 credit each, question/fields at 6 each, SERP at 15;
-each case asserts on the result shape and the script exits non-zero on any
-failure):
+Live smoke (hits production, ~46 credits: page tools run with `js: false` and
+the datacenter proxy at 1 credit each, question/fields at 6 each, SERP at 15,
+one YouTube `/data` call at 15, plus a free `/data` call on example.com that
+must come back as a server-side 400; each case asserts on the result shape and
+the script exits non-zero on any failure):
 
 ```bash
 WEBSCRAPING_AI_API_KEY=... npm run smoke

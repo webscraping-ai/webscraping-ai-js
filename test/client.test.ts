@@ -280,6 +280,279 @@ describe('endpoint methods', () => {
     expect(calls[0]!.url.searchParams.get('page')).toBe('1');
   });
 
+  it('data: GET /data with url/country/transcript/transcript_language + params', async () => {
+    const body = {
+      request_parameters: {
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        provider: 'youtube',
+        type: 'video',
+      },
+      parse_status: 'ok',
+      data: { video_id: 'dQw4w9WgXcQ', title: 'Never Gonna Give You Up' },
+    };
+    const { fn, calls } = fakeFetch(jsonResponse(body));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    const out = await client.data<{ video_id: string; title: string }>({
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      country: 'gb',
+      transcript: true,
+      transcript_language: 'de',
+      params: { comments: 20, 'a&b=c': 'x&y=z', include: false, skipped: undefined },
+    });
+
+    expect(out).toEqual(body);
+    expect(out.data?.title).toBe('Never Gonna Give You Up');
+    const { url } = calls[0]!;
+    expect(url.origin + url.pathname).toBe(`${BASE}/data`);
+    // `&`/`=` in extra keys and values are escaped, not smuggled as new params.
+    expect(url.search).toContain('a%26b%3Dc=x%26y%3Dz');
+    expect(url.search).toContain('url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      api_key: API_KEY,
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      country: 'gb',
+      transcript: 'true',
+      transcript_language: 'de',
+      comments: '20',
+      'a&b=c': 'x&y=z',
+      include: 'false',
+    });
+  });
+
+  it('data: sends transcript=false as the string "false"', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({}));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await client.data({ url: 'https://www.youtube.com/watch?v=x', transcript: false });
+
+    expect(calls[0]!.url.searchParams.get('transcript')).toBe('false');
+  });
+
+  it('data: omits unset optional params and ignores scraping options', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({}));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await client.data({
+      url: 'https://www.tiktok.com/@nasa',
+      js: true,
+      proxy: 'residential',
+    } as unknown as { url: string });
+
+    expect([...calls[0]!.url.searchParams.keys()].sort()).toEqual(['api_key', 'url']);
+  });
+
+  it.each([
+    ['country', { country: 'de' }],
+    ['transcript', { transcript: true }],
+    ['transcript_language', { transcript_language: 'en' }],
+  ])(
+    'data: rejects %s in params (set or not as a named option) without a request',
+    async (key, params) => {
+      const { fn, calls } = fakeFetch(jsonResponse({}));
+      const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+      for (const named of [{}, { [key]: (params as Record<string, unknown>)[key] }]) {
+        const promise = client.data({ url: 'https://www.youtube.com/watch?v=x', ...named, params });
+        await expect(promise).rejects.toBeInstanceOf(WebScrapingAIError);
+        await expect(promise).rejects.toThrow(new RegExp(`use the named \`${key}\` option`));
+      }
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    'https://example.com/anything',
+    '  https://Example.COM/A%2Fb/ünï?x=1&y=a b#Frag  ',
+    'not even a url',
+  ])('data: sends an arbitrary URL %j unmodified with no client-side check', async (target) => {
+    const raw: string[] = [];
+    const fn = vi.fn(async (input: string | URL | Request) => {
+      raw.push(String(input));
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await client.data({ url: target });
+
+    expect(raw).toHaveLength(1);
+    const query = raw[0]!.split('?')[1]!;
+    // Exact bytes: the value percent-encoded once, nothing trimmed, lower-cased or dropped.
+    expect(query.split('&')).toContain(`url=${encodeURIComponent(target)}`);
+    expect(new URLSearchParams(query).get('url')).toBe(target);
+  });
+
+  it('data: rejects __proto__ in params without sending a request', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({}));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    const params = JSON.parse('{"__proto__": "x"}') as Record<string, string>;
+
+    await expect(client.data({ url: 'https://example.com/', params })).rejects.toThrow(
+      /must not contain "__proto__"/,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'data: rejects non-finite number %s in params without a request',
+    async (value) => {
+      const { fn, calls } = fakeFetch(jsonResponse({}));
+      const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+      await expect(
+        client.data({ url: 'https://example.com/', params: { n: value } }),
+      ).rejects.toThrow(/params.n must be a finite number/);
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    ['url', { url: 'https://x.test/\uD800' }],
+    ['a param value', { url: 'https://x.test/', params: { k: 'a\uDC00' } }],
+    ['a param key', { url: 'https://x.test/', params: { ['k\uD800']: 'v' } }],
+  ])(
+    'data: an unpaired surrogate in %s rejects with WebScrapingAIError, not URIError',
+    async (_label, options) => {
+      const { fn, calls } = fakeFetch(jsonResponse({}));
+      const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+      const err = await client.data(options).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(WebScrapingAIError);
+      expect(err).not.toBeInstanceOf(URIError);
+      expect((err as Error).message).toMatch(/unpaired UTF-16 surrogate/);
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  it('an unpaired surrogate is mapped on every endpoint (html)', async () => {
+    const { fn, calls } = fakeFetch(textResponse(''));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+    await expect(client.html({ url: 'https://x.test/\uD800' })).rejects.toBeInstanceOf(
+      WebScrapingAIError,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it('serp: sends params as-is alongside the named options', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({ organic_results: [] }));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await client.serp({ q: 'coffee', gl: 'de', params: { from_cli: true, 'a&b': 'c=d', n: 2 } });
+
+    const { url } = calls[0]!;
+    expect(url.search).toContain('a%26b=c%3Dd');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      api_key: API_KEY,
+      q: 'coffee',
+      gl: 'de',
+      from_cli: 'true',
+      'a&b': 'c=d',
+      n: '2',
+    });
+  });
+
+  it.each(['api_key', 'q', 'engine', 'gl', 'hl', 'page', '__proto__'])(
+    'serp: rejects %s in params without sending a request',
+    async (key) => {
+      const { fn, calls } = fakeFetch(jsonResponse({}));
+      const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+      const params = JSON.parse(JSON.stringify({ [key]: 'x' })) as Record<string, string>;
+
+      await expect(client.serp({ q: 'coffee', params })).rejects.toThrow(
+        new RegExp(`must not contain "${key}"`),
+      );
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  it('serp: rejects non-scalar and non-finite params values', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({}));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+    await expect(client.serp({ q: 'coffee', params: { n: Number.NaN } })).rejects.toThrow(
+      /finite number/,
+    );
+    await expect(
+      client.serp({ q: 'coffee', params: { o: {} } as unknown as Record<string, string> }),
+    ).rejects.toThrow(/string, number or boolean/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each(['', ' ', ' \t\n '])(
+    'data: rejects blank url %j without sending a request',
+    async (url) => {
+      const { fn, calls } = fakeFetch(jsonResponse({}));
+      const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+      const promise = client.data({ url });
+      await expect(promise).rejects.toBeInstanceOf(WebScrapingAIError);
+      await expect(promise).rejects.toThrow(/url is required/);
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  it('data: rejects a missing or non-string url without sending a request', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({}));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+    await expect(client.data({} as unknown as { url: string })).rejects.toBeInstanceOf(
+      WebScrapingAIError,
+    );
+    await expect(client.data({ url: 42 } as unknown as { url: string })).rejects.toBeInstanceOf(
+      WebScrapingAIError,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each(['api_key', 'url'])(
+    'data: rejects %s in params without sending a request',
+    async (key) => {
+      const { fn, calls } = fakeFetch(jsonResponse({}));
+      const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+      const promise = client.data({ url: 'https://example.com/', params: { [key]: 'evil' } });
+      await expect(promise).rejects.toBeInstanceOf(WebScrapingAIError);
+      await expect(promise).rejects.toThrow(new RegExp(`must not contain "${key}"`));
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  it('data: rejects non-scalar params values without sending a request', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({}));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+    await expect(
+      client.data({
+        url: 'https://example.com/',
+        params: { nested: { a: 1 } } as unknown as Record<string, string>,
+      }),
+    ).rejects.toThrow(/params.nested must be a string, number or boolean/);
+    await expect(
+      client.data({
+        url: 'https://example.com/',
+        params: ['x'] as unknown as Record<string, string>,
+      }),
+    ).rejects.toThrow(/params must be a plain object/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('data: passes unknown provider/type and parse_failed with data: null through', async () => {
+    const body = {
+      request_parameters: {
+        url: 'https://newsite.example/p/1',
+        provider: 'some_future_site',
+        type: 'hologram',
+      },
+      parse_status: 'parse_failed',
+      data: null,
+    };
+    const { fn } = fakeFetch(jsonResponse(body));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    const out = await client.data({ url: 'https://newsite.example/p/1' });
+
+    expect(out).toEqual(body);
+    expect(out.request_parameters.provider).toBe('some_future_site');
+    expect(out.request_parameters.type).toBe('hologram');
+    expect(out.parse_status).toBe('parse_failed');
+    expect(out.data).toBeNull();
+  });
+
   it('headers: deepObject-encoded', async () => {
     const { fn, calls } = fakeFetch(textResponse(''));
     const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
@@ -352,6 +625,18 @@ describe('error mapping', () => {
       message: 'Not enough credits',
       statusCode: null,
     });
+  });
+
+  it('data: maps a 400 {message} (unsupported URL) to BadRequestError', async () => {
+    const message =
+      'Unsupported URL for /data. Supported sites: youtube, tiktok, twitter, linkedin, instagram, reddit. For other sites, use /ai/fields';
+    const { fn } = fakeFetch(jsonResponse({ message }, 400));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    const err = await client.data({ url: 'https://example.com/' }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect(err).toMatchObject({ status: 400, message, statusCode: null });
+    expect((err as Error).message).not.toContain(API_KEY);
   });
 
   it('falls back to a generic APIError for undocumented statuses', async () => {

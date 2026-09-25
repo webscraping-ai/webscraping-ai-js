@@ -11,6 +11,10 @@ export type {
   SerpOptions,
   SerpResult,
   SerpOrganicResult,
+  DataOptions,
+  ExtraParamValue,
+  DataResult,
+  DataRequestParameters,
 } from './client.js';
 
 export {
