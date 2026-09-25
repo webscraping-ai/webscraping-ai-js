@@ -65,14 +65,14 @@ const info = await client.account();
 
 `serp()` returns parsed Google results for a query. It takes `q` (required),
 `engine` (`'google'`, the default), `gl` (country, default `'us'`), `hl`
-(language, default `'en'`) and `page` (1-based, 10 results per page; the server
-caps it at 100) — none of the page-scraping options apply. Flat 15 credits per
-search; failed searches are not charged.
+(language, default `'en'`) and `page` (1–100, 10 results per page; the server
+rejects values above 100 with a 400) — none of the page-scraping options apply.
+Flat 15 credits per search; failed searches are not charged.
 
 The client validates before sending: an empty or whitespace-only `q`, or a
 `page` that isn't an integer >= 1, rejects with `WebScrapingAIError` and no
-request (or charge) is made — the server would otherwise silently treat a bad
-`page` as page 1 and bill the search.
+request (or charge) is made. The server also rejects a bad `page` with a 400
+(not billed); checking client-side saves the round trip.
 
 ```ts
 import { WebScrapingAI, type SerpResult } from 'webscraping-ai';

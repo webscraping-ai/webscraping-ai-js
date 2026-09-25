@@ -107,7 +107,7 @@ export interface SerpOptions {
   hl?: string;
   /**
    * Results page number, 1-based, 10 results per page (API default: 1).
-   * Must be an integer >= 1; the server caps it at 100.
+   * Must be an integer >= 1; the server rejects values above 100 with a 400 (not billed).
    */
   page?: number;
 }
@@ -246,7 +246,8 @@ export class WebScrapingAI {
     }
     const { q, engine, gl, hl, page } = options;
     // isSafeInteger, not isInteger: 1e21 is an "integer" but serializes as
-    // "1e+21", which the server's parseInt reads as page 1 (and still bills).
+    // "1e+21", which the server rejects with a 400 (not billed); checking
+    // client-side saves the round trip.
     if (page !== undefined && (!Number.isSafeInteger(page) || page < 1)) {
       return Promise.reject(new WebScrapingAIError('page must be an integer >= 1.'));
     }

@@ -7,7 +7,7 @@ All notable changes to `webscraping-ai` will be documented in this file.
 ### Added
 
 - `serp({ q, engine?, gl?, hl?, page? })` for the new `/serp` endpoint: parsed search engine results for a query. Resolves to the new exported `SerpResult` type (`SerpOptions` and `SerpOrganicResult` are exported too). Flat 15 credits per search; failed searches are not charged.
-- `serp()` validates its input before sending: a non-string, empty or whitespace-only `q`, or a `page` that isn't a safe integer >= 1 (`NaN`, `1.5`, `0`, `-3`, `1e21`, ...), rejects with `WebScrapingAIError` and no request is made (the server would silently treat an invalid page as page 1 and still charge). `q` is sent untrimmed. The server caps `page` at 100.
+- `serp()` validates its input before sending: a non-string, empty or whitespace-only `q`, or a `page` that isn't a safe integer >= 1 (`NaN`, `1.5`, `0`, `-3`, `1e21`, ...), rejects with `WebScrapingAIError` and no request is made (the server also rejects an invalid page with a 400, not billed; checking client-side saves the round trip). `q` is sent untrimmed. Pages are 1–100: the server rejects a `page` above 100 with a 400.
 - `bin/smoke.ts` now asserts on result shape (non-empty results, SERP `organic_results` and echoed `q`, a non-empty `selected_multiple` match, `fields` `result` key), runs page tools with `js: false` + datacenter proxy (~31 credits; README's old "~17" was wrong), catches every error per case, redacts the API key from failure output and collapses whitespace in previews.
 
 ### Fixed
