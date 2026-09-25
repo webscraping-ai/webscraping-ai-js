@@ -161,6 +161,65 @@ describe('endpoint methods', () => {
     expect([...url.searchParams.keys()]).toEqual(['api_key']);
   });
 
+  it('serp: GET /serp with q/engine/gl/hl/page, returns parsed JSON', async () => {
+    const body = {
+      search_parameters: { engine: 'google', q: 'coffee machines', gl: 'de', hl: 'de', page: 2 },
+      search_information: {
+        query_displayed: 'coffee machines',
+        organic_results_state: 'Results for exact spelling',
+      },
+      organic_results: [
+        {
+          position: 1,
+          title: 'Best',
+          link: 'https://example.com/',
+          domain: 'example.com',
+          displayed_link: 'example.com',
+        },
+      ],
+      pagination: { current: 2, next: 3 },
+    };
+    const { fn, calls } = fakeFetch(jsonResponse(body));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    const out = await client.serp({
+      q: 'coffee machines',
+      engine: 'google',
+      gl: 'de',
+      hl: 'de',
+      page: 2,
+    });
+
+    expect(out).toEqual(body);
+    expect(out.organic_results[0]?.domain).toBe('example.com');
+    const { url } = calls[0]!;
+    expect(url.origin + url.pathname).toBe(`${BASE}/serp`);
+    expect(url.search).toContain('q=coffee%20machines');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      q: 'coffee machines',
+      engine: 'google',
+      gl: 'de',
+      hl: 'de',
+      page: '2',
+      api_key: API_KEY,
+    });
+  });
+
+  it('serp: omits unset optional params and ignores scraping options', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({ organic_results: [] }));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await client.serp({ q: 'coffee', js: true } as unknown as { q: string });
+
+    expect([...calls[0]!.url.searchParams.keys()].sort()).toEqual(['api_key', 'q']);
+  });
+
+  it('serp: rejects an empty q without sending a request', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({}));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+    await expect(client.serp({ q: '' })).rejects.toBeInstanceOf(WebScrapingAIError);
+    expect(calls).toHaveLength(0);
+  });
+
   it('headers: deepObject-encoded', async () => {
     const { fn, calls } = fakeFetch(textResponse(''));
     const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
@@ -222,6 +281,17 @@ describe('error mapping', () => {
       expect(e.statusMessage).toBe('Service Unavailable');
       expect(e.body).toBe('origin html');
     }
+  });
+
+  it('serp: maps an error body without the scraping envelope to a typed error', async () => {
+    const { fn } = fakeFetch(jsonResponse({ message: 'Not enough credits' }, 402));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await expect(client.serp({ q: 'coffee' })).rejects.toMatchObject({
+      name: 'PaymentRequiredError',
+      status: 402,
+      message: 'Not enough credits',
+      statusCode: null,
+    });
   });
 
   it('falls back to a generic APIError for undocumented statuses', async () => {

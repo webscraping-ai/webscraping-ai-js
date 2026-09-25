@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * Hand-run smoke test against the live API. Not part of the test suite —
- * costs ~17 credits per full sweep.
+ * costs ~32 credits per full sweep (the SERP call alone is 15).
  *
  * Usage:
  *   WEBSCRAPING_AI_API_KEY=... npm run smoke
@@ -42,6 +42,7 @@ const cases: Array<[string, () => Promise<unknown>]> = [
         fields: { title: 'Page title', description: 'Short description' },
       }),
   ],
+  ['serp', () => client.serp({ q: 'coffee machines' })],
 ];
 
 let failures = 0;

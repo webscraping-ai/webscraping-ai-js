@@ -92,6 +92,72 @@ export interface FieldsOptions extends CommonRequestOptions {
   fields: Record<string, string>;
 }
 
+/**
+ * Options for `serp()`. Query-shaped, not URL-shaped: none of the
+ * page-scraping options in `CommonRequestOptions` apply to `/serp`.
+ */
+export interface SerpOptions {
+  /** Search query. Required, non-empty. */
+  q: string;
+  /** Search engine to query (API default: 'google'). */
+  engine?: 'google';
+  /** Two-letter country code for the search geolocation (API default: 'us'). */
+  gl?: string;
+  /** Two-letter language code for the results (API default: 'en'). */
+  hl?: string;
+  /** Results page number, 1-based, 10 results per page (API default: 1). */
+  page?: number;
+}
+
+/** One organic (non-ad) result, in rank order. */
+export interface SerpOrganicResult {
+  /** Rank within this page, starting at 1 on every page. */
+  position: number;
+  title: string;
+  link: string;
+  /** Hostname of `link` without a leading `www.`. */
+  domain: string;
+  /** Breadcrumb-style URL shown under the title; falls back to `domain`. */
+  displayed_link: string;
+  /** Result description snippet, when the engine shows one. */
+  snippet?: string;
+  /** Date shown next to the snippet, as displayed (absolute or relative). */
+  date?: string;
+}
+
+/** Parsed search engine results returned by `GET /serp`. Optional keys may be absent. */
+export interface SerpResult {
+  /** The normalized parameters the search was run with. */
+  search_parameters: {
+    engine: string;
+    q: string;
+    gl: string;
+    hl: string;
+    page: number;
+  };
+  /** What the engine reported about the search itself. */
+  search_information: {
+    /** The query the results are for; equals `q` unless a spelling fix was applied. */
+    query_displayed: string;
+    organic_results_state:
+      | 'Results for exact spelling'
+      | 'Empty showing fixed spelling results'
+      | 'Fully empty';
+    /** The auto-corrected query, present only when a spelling fix was applied. */
+    showing_results_for?: string;
+    /** Estimated total result count, when the upstream page reports it. */
+    total_results?: number;
+  };
+  organic_results: SerpOrganicResult[];
+  /** "Related searches" suggestions; omitted when the page shows none. */
+  related_searches?: Array<{ query: string }>;
+  pagination: {
+    current: number;
+    /** Next page number; omitted when there is no further page. */
+    next?: number;
+  };
+}
+
 export class WebScrapingAI {
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -160,6 +226,20 @@ export class WebScrapingAI {
    */
   fields(options: FieldsOptions): Promise<unknown> {
     return this.get('/ai/fields', options);
+  }
+
+  /**
+   * `GET /serp` — parsed search engine results for a query. Flat 15 credits
+   * per search; failed searches are not charged.
+   */
+  serp(options: SerpOptions): Promise<SerpResult> {
+    if (typeof options?.q !== 'string' || options.q === '') {
+      return Promise.reject(
+        new WebScrapingAIError('q is required and must be a non-empty string.'),
+      );
+    }
+    const { q, engine, gl, hl, page } = options;
+    return this.get('/serp', { q, engine, gl, hl, page }) as Promise<SerpResult>;
   }
 
   /** `GET /account` — credit / quota info for the API key. */

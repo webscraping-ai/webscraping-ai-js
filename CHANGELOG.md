@@ -2,6 +2,12 @@
 
 All notable changes to `webscraping-ai` will be documented in this file.
 
+## 4.1.0 — 2026-09-25
+
+### Added
+
+- `serp({ q, engine?, gl?, hl?, page? })` for the new `/serp` endpoint: parsed search engine results for a query. Resolves to the new exported `SerpResult` type (`SerpOptions` and `SerpOrganicResult` are exported too). Flat 15 credits per search; failed searches are not charged.
+
 ## 4.0.2 — 2026-07-17
 
 ### Changed

@@ -61,6 +61,29 @@ const fields = await client.fields({
 const info = await client.account();
 ```
 
+### Search engine results (SERP)
+
+`serp()` returns parsed Google results for a query. It takes `q` (required),
+`engine` (`'google'`, the default), `gl` (country, default `'us'`), `hl`
+(language, default `'en'`) and `page` (1-based, 10 results per page) — none of
+the page-scraping options apply. Flat 15 credits per search; failed searches
+are not charged.
+
+```ts
+import { WebScrapingAI, type SerpResult } from 'webscraping-ai';
+
+const serp: SerpResult = await client.serp({ q: 'coffee machines', gl: 'us', hl: 'en', page: 1 });
+
+for (const r of serp.organic_results) {
+  console.log(`${r.position}. ${r.title} — ${r.link}`);
+}
+const nextPage = serp.pagination.next; // undefined on the last page
+```
+
+Optional fields (`snippet`, `date`, `related_searches`, `pagination.next`,
+`search_information.showing_results_for` / `total_results`) are omitted from
+the response when absent, not set to `null`.
+
 The constructor reads `WEBSCRAPING_AI_API_KEY` from the environment as a
 fallback when running on Node, Deno, or Bun:
 

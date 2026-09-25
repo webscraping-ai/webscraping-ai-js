@@ -8,6 +8,9 @@ export type {
   SelectedMultipleOptions,
   QuestionOptions,
   FieldsOptions,
+  SerpOptions,
+  SerpResult,
+  SerpOrganicResult,
 } from './client.js';
 
 export {
