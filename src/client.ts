@@ -97,7 +97,7 @@ export interface FieldsOptions extends CommonRequestOptions {
  * page-scraping options in `CommonRequestOptions` apply to `/serp`.
  */
 export interface SerpOptions {
-  /** Search query. Required, non-empty. */
+  /** Search query. Required; must not be empty or whitespace-only. Sent untrimmed. */
   q: string;
   /** Search engine to query (API default: 'google'). */
   engine?: 'google';
@@ -105,7 +105,10 @@ export interface SerpOptions {
   gl?: string;
   /** Two-letter language code for the results (API default: 'en'). */
   hl?: string;
-  /** Results page number, 1-based, 10 results per page (API default: 1). */
+  /**
+   * Results page number, 1-based, 10 results per page (API default: 1).
+   * Must be an integer >= 1; the server caps it at 100.
+   */
   page?: number;
 }
 
@@ -231,14 +234,22 @@ export class WebScrapingAI {
   /**
    * `GET /serp` — parsed search engine results for a query. Flat 15 credits
    * per search; failed searches are not charged.
+   *
+   * Rejects with `WebScrapingAIError` (no request sent) when `q` is empty or
+   * whitespace-only, or `page` is not an integer >= 1. `q` is sent as given.
    */
   serp(options: SerpOptions): Promise<SerpResult> {
-    if (typeof options?.q !== 'string' || options.q === '') {
+    if (typeof options?.q !== 'string' || options.q.trim() === '') {
       return Promise.reject(
-        new WebScrapingAIError('q is required and must be a non-empty string.'),
+        new WebScrapingAIError('q is required and must be a non-empty, non-whitespace string.'),
       );
     }
     const { q, engine, gl, hl, page } = options;
+    // isSafeInteger, not isInteger: 1e21 is an "integer" but serializes as
+    // "1e+21", which the server's parseInt reads as page 1 (and still bills).
+    if (page !== undefined && (!Number.isSafeInteger(page) || page < 1)) {
+      return Promise.reject(new WebScrapingAIError('page must be an integer >= 1.'));
+    }
     return this.get('/serp', { q, engine, gl, hl, page }) as Promise<SerpResult>;
   }
 

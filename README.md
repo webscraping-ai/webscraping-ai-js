@@ -65,9 +65,14 @@ const info = await client.account();
 
 `serp()` returns parsed Google results for a query. It takes `q` (required),
 `engine` (`'google'`, the default), `gl` (country, default `'us'`), `hl`
-(language, default `'en'`) and `page` (1-based, 10 results per page) — none of
-the page-scraping options apply. Flat 15 credits per search; failed searches
-are not charged.
+(language, default `'en'`) and `page` (1-based, 10 results per page; the server
+caps it at 100) — none of the page-scraping options apply. Flat 15 credits per
+search; failed searches are not charged.
+
+The client validates before sending: an empty or whitespace-only `q`, or a
+`page` that isn't an integer >= 1, rejects with `WebScrapingAIError` and no
+request (or charge) is made — the server would otherwise silently treat a bad
+`page` as page 1 and bill the search.
 
 ```ts
 import { WebScrapingAI, type SerpResult } from 'webscraping-ai';
@@ -177,7 +182,10 @@ npm run lint
 npm run build      # tsup → dist/{index.js,index.cjs,index.d.ts}
 ```
 
-Live smoke (hits production, costs ~17 credits):
+Live smoke (hits production, ~31 credits: page tools run with `js: false` and
+the datacenter proxy at 1 credit each, question/fields at 6 each, SERP at 15;
+each case asserts on the result shape and the script exits non-zero on any
+failure):
 
 ```bash
 WEBSCRAPING_AI_API_KEY=... npm run smoke

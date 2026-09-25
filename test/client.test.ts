@@ -220,6 +220,66 @@ describe('endpoint methods', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it.each([' ', ' \t\n '])(
+    'serp: rejects whitespace-only q %j without sending a request',
+    async (q) => {
+      const { fn, calls } = fakeFetch(jsonResponse({}));
+      const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+      await expect(client.serp({ q })).rejects.toBeInstanceOf(WebScrapingAIError);
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  it('serp: rejects a non-string q without sending a request', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({}));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+    await expect(client.serp({ q: 42 } as unknown as { q: string })).rejects.toBeInstanceOf(
+      WebScrapingAIError,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it('serp: sends q untrimmed', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({ organic_results: [] }));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await client.serp({ q: '  coffee ' });
+
+    expect(calls[0]!.url.searchParams.get('q')).toBe('  coffee ');
+  });
+
+  it.each([Number.NaN, 1.5, 0, -1, -3, 1e21, Number.POSITIVE_INFINITY])(
+    'serp: rejects page %s without sending a request',
+    async (page) => {
+      const { fn, calls } = fakeFetch(jsonResponse({}));
+      const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+      const promise = client.serp({ q: 'coffee', page });
+      await expect(promise).rejects.toBeInstanceOf(WebScrapingAIError);
+      await expect(promise).rejects.toThrow(/page must be an integer >= 1/);
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  it('serp: rejects a non-number page without sending a request', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({}));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+    await expect(
+      client.serp({ q: 'coffee', page: '2' } as unknown as { q: string; page: number }),
+    ).rejects.toBeInstanceOf(WebScrapingAIError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('serp: accepts page 1', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({ organic_results: [] }));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await client.serp({ q: 'coffee', page: 1 });
+
+    expect(calls[0]!.url.searchParams.get('page')).toBe('1');
+  });
+
   it('headers: deepObject-encoded', async () => {
     const { fn, calls } = fakeFetch(textResponse(''));
     const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
