@@ -21,8 +21,8 @@ Requires Node.js 20 or newer. Also works in any runtime with a global `fetch`
 
 ## Quick start
 
-[Sign up](https://webscraping.ai/auth/sign_up) to get an API key — the free
-trial includes 2,000 credits, no credit card required. Your key lives in the
+[Sign up](https://webscraping.ai/auth/sign_up) to get an API key — a free
+trial, no credit card required. Your key lives in the
 [dashboard](https://webscraping.ai/dashboard).
 
 ```ts
@@ -74,7 +74,7 @@ rejects values above 100 with a 400) — none of the page-scraping options apply
 `params` passes extra scalar query parameters through as-is, with the same
 rules as `data()`'s (`api_key`, `q`, `__proto__` and the named option names
 are rejected).
-Flat 15 credits per search; failed searches are not charged.
+Priced per search (see [pricing](https://webscraping.ai/docs#serp)); failed searches are not charged.
 
 The client validates before sending: an empty or whitespace-only `q`, or a
 `page` that isn't an integer >= 1, rejects with `WebScrapingAIError` and no
@@ -125,9 +125,10 @@ Options:
   named option names (`country`, `transcript`, `transcript_language`) are
   rejected with `WebScrapingAIError`: use the named option instead.
 
-None of the page-scraping options apply. 15 credits per request, including
-pages that parse empty (`parse_failed`) or no longer exist (`not_found`);
-failed fetches are not charged.
+None of the page-scraping options apply. Priced per site (see
+[pricing](https://webscraping.ai/docs#data)), including pages that parse empty
+(`parse_failed`) or no longer exist (`not_found`); unsupported URLs and failed
+fetches are not charged.
 
 ```ts
 import { WebScrapingAI, BadRequestError, type DataResult } from 'webscraping-ai';

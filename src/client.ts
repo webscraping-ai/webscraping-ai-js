@@ -307,8 +307,8 @@ export class WebScrapingAI {
   }
 
   /**
-   * `GET /serp` — parsed search engine results for a query. Flat 15 credits
-   * per search; failed searches are not charged.
+   * `GET /serp` — parsed search engine results for a query. Priced per search
+   * (see https://webscraping.ai/docs#serp); failed searches are not charged.
    *
    * Rejects with `WebScrapingAIError` (no request sent) when `q` is empty or
    * whitespace-only, or `page` is not an integer >= 1. `q` is sent as given.
@@ -338,8 +338,9 @@ export class WebScrapingAI {
   /**
    * `GET /data` — structured JSON for a page on a supported site (e.g.
    * YouTube, TikTok, X, LinkedIn, Instagram, Reddit; more are added
-   * server-side). Flat 15 credits per request, including `parse_failed` and
-   * `not_found` results; failed fetches are not charged.
+   * server-side). Priced per site (see https://webscraping.ai/docs#data),
+   * including `parse_failed` and `not_found` results; unsupported URLs and
+   * failed fetches are not charged.
    *
    * The URL is sent unmodified and never checked against a list of sites.
    * An unsupported URL or page type returns a 400 (`BadRequestError`) that is
