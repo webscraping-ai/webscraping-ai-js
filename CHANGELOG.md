@@ -2,6 +2,12 @@
 
 All notable changes to `webscraping-ai` will be documented in this file.
 
+## 4.2.1 — 2026-09-26
+
+### Security
+
+- Dev dependencies updated for open Dependabot alerts (`vitest` 2 → 4, `vite`, `esbuild`, `postcss`, `js-yaml`, `brace-expansion`). The SDK has no runtime dependencies, so the published code is unchanged apart from formatting.
+
 ## 4.2.0 — 2026-09-25
 
 ### Added

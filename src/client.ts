@@ -150,9 +150,7 @@ export interface SerpResult {
     /** The query the results are for; equals `q` unless a spelling fix was applied. */
     query_displayed: string;
     organic_results_state:
-      | 'Results for exact spelling'
-      | 'Empty showing fixed spelling results'
-      | 'Fully empty';
+      'Results for exact spelling' | 'Empty showing fixed spelling results' | 'Fully empty';
     /** The auto-corrected query, present only when a spelling fix was applied. */
     showing_results_for?: string;
     /** Estimated total result count, when the upstream page reports it. */
