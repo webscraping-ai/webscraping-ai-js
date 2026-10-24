@@ -2,12 +2,13 @@
 /**
  * Hand-run smoke test against the live API. Not part of the test suite.
  *
- * Costs ~46 credits per full sweep: account (free), 4 page calls
+ * Costs ~76 credits per full sweep: account (free), 4 page calls
  * (html/text/selected/selected_multiple) with js=false + datacenter proxy at
  * 1 credit each, question + fields at 6 each (datacenter, no JS), one SERP
- * search at 15 and one /data call at 15 -> 4 + 12 + 15 + 15 = 46. The second
- * /data case (example.com) is a free 400: it proves the *server*, not the
- * client, rejects unsupported sites.
+ * search at 15, a two-page located SERP search at 2 x 15, a free
+ * /serp/locations lookup and one /data call at 15 -> 4 + 12 + 15 + 30 + 15 =
+ * 76. The second /data case (example.com) is a free 400: it proves the
+ * *server*, not the client, rejects unsupported sites.
  *
  * Each case asserts on the shape of the result, not just the absence of an
  * exception; any failure prints a FAIL line and the script exits 1.
@@ -103,6 +104,34 @@ const cases: Array<[string, () => Promise<unknown>, Check]> = [
       return q === 'coffee machines'
         ? null
         : `search_parameters.q is ${JSON.stringify(q)}, expected "coffee machines"`;
+    },
+  ],
+  [
+    'serp_location',
+    () => client.serp({ q: 'coffee machines', location: 'Austin, TX', pages: 2 }),
+    (r) => {
+      const serp = r as {
+        organic_results?: unknown;
+        search_parameters?: { location_used?: unknown };
+      };
+      if (!Array.isArray(serp?.organic_results) || serp.organic_results.length === 0) {
+        return 'organic_results is missing or empty';
+      }
+      const used = serp.search_parameters?.location_used;
+      return typeof used === 'string' && used.includes('Austin')
+        ? null
+        : `search_parameters.location_used is ${JSON.stringify(used)}, expected it to contain "Austin"`;
+    },
+  ],
+  [
+    'serp_locations',
+    () => client.serpLocations({ q: 'austin', limit: 3 }),
+    (r) => {
+      if (!Array.isArray(r) || r.length === 0) return 'empty or non-array result';
+      const name = (r[0] as { canonical_name?: unknown }).canonical_name;
+      return typeof name === 'string' && name.includes('Austin')
+        ? null
+        : `first canonical_name is ${JSON.stringify(name)}, expected it to contain "Austin"`;
     },
   ],
   [

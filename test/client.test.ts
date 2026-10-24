@@ -280,6 +280,226 @@ describe('endpoint methods', () => {
     expect(calls[0]!.url.searchParams.get('page')).toBe('1');
   });
 
+  it('serp: sends pages/location/radius and returns the multi-page fields', async () => {
+    const body = {
+      search_parameters: {
+        engine: 'google',
+        q: 'coffee machines',
+        gl: 'us',
+        hl: 'en',
+        page: 1,
+        pages: 2,
+        location_requested: 'Austin, TX',
+        location_used: 'Austin,Texas,United States',
+        lat: 30.2672,
+        lon: -97.7431,
+        radius: 500,
+      },
+      search_information: {
+        query_displayed: 'coffee machines',
+        organic_results_state: 'Results for exact spelling',
+      },
+      organic_results: [
+        {
+          position: 11,
+          page: 2,
+          title: 'Best',
+          link: 'https://example.com/',
+          domain: 'example.com',
+          displayed_link: 'example.com',
+        },
+      ],
+      pagination: { current: 1, pages_returned: 2, next: 3 },
+    };
+    const { fn, calls } = fakeFetch(jsonResponse(body));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    const out = await client.serp({
+      q: 'coffee machines',
+      location: ' Austin, TX ',
+      pages: 2,
+      radius: 500,
+    });
+
+    expect(out).toEqual(body);
+    expect(out.search_parameters.location_used).toBe('Austin,Texas,United States');
+    expect(out.organic_results[0]?.page).toBe(2);
+    expect(out.pagination.pages_returned).toBe(2);
+    expect(Object.fromEntries(calls[0]!.url.searchParams)).toEqual({
+      q: 'coffee machines',
+      pages: '2',
+      location: ' Austin, TX ',
+      radius: '500',
+      api_key: API_KEY,
+    });
+  });
+
+  it('serp: sends uule as given', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({ organic_results: [] }));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await client.serp({ q: 'coffee', uule: 'w+CAIQICIfQXVzdGluLFRleGFzLFVuaXRlZCBTdGF0ZXM' });
+
+    const { url } = calls[0]!;
+    expect(url.search).toContain('uule=w%2BCAIQICIfQXVzdGluLFRleGFzLFVuaXRlZCBTdGF0ZXM');
+    expect(url.searchParams.get('uule')).toBe('w+CAIQICIfQXVzdGluLFRleGFzLFVuaXRlZCBTdGF0ZXM');
+  });
+
+  it.each([
+    [30.2672, -97.7431, '30.2672', '-97.7431'],
+    [1e-7, -1e-7, '0.0000001', '-0.0000001'],
+    [1e-9, -0, '0', '0'],
+    [48, -180, '48', '-180'],
+    [0.00001, 12.345678912, '0.00001', '12.3456789'],
+  ])('serp: sends lat %s / lon %s as plain decimals', async (lat, lon, wireLat, wireLon) => {
+    const { fn, calls } = fakeFetch(jsonResponse({ organic_results: [] }));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await client.serp({ q: 'coffee', lat, lon });
+
+    const params = calls[0]!.url.searchParams;
+    expect(params.get('lat')).toBe(wireLat);
+    expect(params.get('lon')).toBe(wireLon);
+    expect(params.get('lat')).toMatch(/^-?\d+(\.\d+)?$/);
+    expect(params.get('lon')).toMatch(/^-?\d+(\.\d+)?$/);
+  });
+
+  it.each([
+    ['pages', Number.NaN],
+    ['pages', 1.5],
+    ['pages', 0],
+    ['pages', -2],
+    ['pages', 1e21],
+    ['pages', '2'],
+    ['radius', Number.NaN],
+    ['radius', 0.5],
+    ['radius', 0],
+    ['radius', -1],
+    ['radius', Number.POSITIVE_INFINITY],
+    ['radius', '500'],
+  ])('serp: rejects %s %j without sending a request', async (name, value) => {
+    const { fn, calls } = fakeFetch(jsonResponse({}));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+    const promise = client.serp({ q: 'coffee', [name]: value } as unknown as { q: string });
+    await expect(promise).rejects.toBeInstanceOf(WebScrapingAIError);
+    await expect(promise).rejects.toThrow(new RegExp(`${name} must be an integer >= 1`));
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([
+    ['lat', Number.NaN],
+    ['lat', Number.POSITIVE_INFINITY],
+    ['lat', '30.2'],
+    ['lon', Number.NaN],
+    ['lon', Number.NEGATIVE_INFINITY],
+  ])('serp: rejects %s %j without sending a request', async (name, value) => {
+    const { fn, calls } = fakeFetch(jsonResponse({}));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+    const promise = client.serp({ q: 'coffee', lat: 1, lon: 1, [name]: value } as unknown as {
+      q: string;
+    });
+    await expect(promise).rejects.toBeInstanceOf(WebScrapingAIError);
+    await expect(promise).rejects.toThrow(new RegExp(`${name} must be a finite number`));
+    expect(calls).toHaveLength(0);
+  });
+
+  it('serp: omits null page/pages/radius/lat/lon instead of rejecting', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({ organic_results: [] }));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await client.serp({
+      q: 'coffee',
+      page: null,
+      pages: null,
+      radius: null,
+      lat: null,
+      lon: null,
+    } as unknown as { q: string });
+
+    expect([...calls[0]!.url.searchParams.keys()].sort()).toEqual(['api_key', 'q']);
+  });
+
+  it('serpLocations: omits a null limit instead of rejecting', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse([]));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await client.serpLocations({ q: 'austin', limit: null } as unknown as { q: string });
+
+    expect([...calls[0]!.url.searchParams.keys()].sort()).toEqual(['api_key', 'q']);
+  });
+
+  it('serp: accepts pages 1 and radius 1', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse({ organic_results: [] }));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await client.serp({ q: 'coffee', lat: 0, lon: 0, pages: 1, radius: 1 });
+
+    const params = calls[0]!.url.searchParams;
+    expect(params.get('pages')).toBe('1');
+    expect(params.get('radius')).toBe('1');
+    expect(params.get('lat')).toBe('0');
+  });
+
+  it('serpLocations: GET /serp/locations with q/limit, returns the parsed array', async () => {
+    const body = [
+      {
+        id: '1026201',
+        google_id: 1026201,
+        google_parent_id: 21176,
+        name: 'Austin',
+        canonical_name: 'Austin,Texas,United States',
+        country_code: 'US',
+        target_type: 'City',
+        reach: 974447,
+        gps: [-97.7431, 30.2672],
+      },
+      {
+        id: '2840',
+        google_id: 2840,
+        google_parent_id: null,
+        name: 'United States',
+        canonical_name: 'United States',
+        country_code: 'US',
+        target_type: 'Country',
+        reach: 331000000,
+        gps: [-77.0364, 38.8951],
+      },
+    ];
+    const { fn, calls } = fakeFetch(jsonResponse(body));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    const out = await client.serpLocations({ q: 'austin', limit: 3 });
+
+    expect(out).toEqual(body);
+    expect(out[0]?.canonical_name).toBe('Austin,Texas,United States');
+    expect(out[0]?.gps[0]).toBe(-97.7431);
+    expect(out[1]?.google_parent_id).toBeNull();
+    const { url } = calls[0]!;
+    expect(url.origin + url.pathname).toBe(`${BASE}/serp/locations`);
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      q: 'austin',
+      limit: '3',
+      api_key: API_KEY,
+    });
+  });
+
+  it('serpLocations: sends no q or limit when called without options', async () => {
+    const { fn, calls } = fakeFetch(jsonResponse([]));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+    await expect(client.serpLocations()).resolves.toEqual([]);
+    expect([...calls[0]!.url.searchParams.keys()]).toEqual(['api_key']);
+    expect(calls[0]!.url.pathname).toBe('/serp/locations');
+  });
+
+  it.each([Number.NaN, 1.5, 0, -1, 1e21, Number.POSITIVE_INFINITY, '3'])(
+    'serpLocations: rejects limit %j without sending a request',
+    async (limit) => {
+      const { fn, calls } = fakeFetch(jsonResponse([]));
+      const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+
+      const promise = client.serpLocations({ limit } as unknown as { limit: number });
+      await expect(promise).rejects.toBeInstanceOf(WebScrapingAIError);
+      await expect(promise).rejects.toThrow(/limit must be an integer >= 1/);
+      expect(calls).toHaveLength(0);
+    },
+  );
+
   it('data: GET /data with url/country/transcript/transcript_language + params', async () => {
     const body = {
       request_parameters: {
@@ -447,19 +667,30 @@ describe('endpoint methods', () => {
     });
   });
 
-  it.each(['api_key', 'q', 'engine', 'gl', 'hl', 'page', '__proto__'])(
-    'serp: rejects %s in params without sending a request',
-    async (key) => {
-      const { fn, calls } = fakeFetch(jsonResponse({}));
-      const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
-      const params = JSON.parse(JSON.stringify({ [key]: 'x' })) as Record<string, string>;
+  it.each([
+    'api_key',
+    'q',
+    'engine',
+    'gl',
+    'hl',
+    'page',
+    'pages',
+    'location',
+    'uule',
+    'lat',
+    'lon',
+    'radius',
+    '__proto__',
+  ])('serp: rejects %s in params without sending a request', async (key) => {
+    const { fn, calls } = fakeFetch(jsonResponse({}));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    const params = JSON.parse(JSON.stringify({ [key]: 'x' })) as Record<string, string>;
 
-      await expect(client.serp({ q: 'coffee', params })).rejects.toThrow(
-        new RegExp(`must not contain "${key}"`),
-      );
-      expect(calls).toHaveLength(0);
-    },
-  );
+    await expect(client.serp({ q: 'coffee', params })).rejects.toThrow(
+      new RegExp(`must not contain "${key}"`),
+    );
+    expect(calls).toHaveLength(0);
+  });
 
   it('serp: rejects non-scalar and non-finite params values', async () => {
     const { fn, calls } = fakeFetch(jsonResponse({}));

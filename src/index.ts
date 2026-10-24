@@ -11,6 +11,8 @@ export type {
   SerpOptions,
   SerpResult,
   SerpOrganicResult,
+  SerpLocation,
+  SerpLocationsOptions,
   DataOptions,
   ExtraParamValue,
   DataResult,

@@ -101,7 +101,10 @@ export interface SerpOptions {
   q: string;
   /** Search engine to query (API default: 'google'). */
   engine?: 'google';
-  /** Two-letter country code for the search geolocation (API default: 'us'). */
+  /**
+   * Two-letter country code for the search. Defaults to the country of
+   * `location`, `lat`/`lon` or `uule` when one is given, otherwise 'us'.
+   */
   gl?: string;
   /** Two-letter language code for the results (API default: 'en'). */
   hl?: string;
@@ -111,18 +114,56 @@ export interface SerpOptions {
    */
   page?: number;
   /**
+   * Number of consecutive results pages to fetch in one call, starting at
+   * `page` (API default: 1). Duplicates across pages are removed, `position`
+   * counts through the combined list and each result gets a `page` field.
+   * Billed per results page returned. Must be an integer >= 1; the server
+   * rejects values above 5 (or past page 100) with a 400 (not billed).
+   */
+  pages?: number;
+  /**
+   * Where the search runs from: a location name such as
+   * 'Austin,Texas,United States' or 'Austin, TX', or an `id` from
+   * `serpLocations()`. Sent as given. An unknown name returns a 400 (not
+   * billed). Cannot be combined with `uule`, `lat` or `lon`.
+   */
+  location?: string;
+  /**
+   * Google-encoded location ('w+CAIQICI…' or 'a+…'). Cannot be combined with
+   * `location`, `lat` or `lon`.
+   */
+  uule?: string;
+  /**
+   * Latitude of the search origin in decimal degrees (-90 to 90). Requires
+   * `lon`. Must be a finite number; sent as a plain decimal with at most 7
+   * fractional digits.
+   */
+  lat?: number;
+  /** Longitude of the search origin in decimal degrees (-180 to 180). Requires `lat`. */
+  lon?: number;
+  /**
+   * Radius in meters around `location` or `lat`/`lon` (server: 1 to 1000).
+   * Must be an integer >= 1.
+   */
+  radius?: number;
+  /**
    * Extra query parameters sent as-is, for options added server-side after
    * this SDK version. Same rules as `DataOptions.params`: scalar values only;
    * `api_key`, `q`, `__proto__` and the named options (`engine`, `gl`, `hl`,
-   * `page`) are rejected.
+   * `page`, `pages`, `location`, `uule`, `lat`, `lon`, `radius`) are rejected.
    */
   params?: Readonly<Record<string, ExtraParamValue>>;
 }
 
 /** One organic (non-ad) result, in rank order. */
 export interface SerpOrganicResult {
-  /** Rank within this page, starting at 1 on every page. */
+  /**
+   * Rank within this page, starting at 1 on every page. With `pages` > 1 it
+   * counts through the combined, de-duplicated list instead.
+   */
   position: number;
+  /** The results page this result came from. Present only when `pages` > 1. */
+  page?: number;
   title: string;
   link: string;
   /** Hostname of `link` without a leading `www.`. */
@@ -144,6 +185,22 @@ export interface SerpResult {
     gl: string;
     hl: string;
     page: number;
+    /** The `pages` asked for. Present only when it is above 1. */
+    pages?: number;
+    /** The `location` or `uule` as sent. Omitted when neither was given. */
+    location_requested?: string;
+    /**
+     * Canonical name of the location the search ran from (the `location`
+     * match, or the capital of the `gl` country). Omitted for searches
+     * located by `lat`/`lon` or a coordinate `uule`.
+     */
+    location_used?: string;
+    /** Latitude the search was sent from. */
+    lat?: number;
+    /** Longitude the search was sent from. */
+    lon?: number;
+    /** The `radius` sent, when one was. */
+    radius?: number;
   };
   /** What the engine reported about the search itself. */
   search_information: {
@@ -161,9 +218,41 @@ export interface SerpResult {
   related_searches?: Array<{ query: string }>;
   pagination: {
     current: number;
-    /** Next page number; omitted when there is no further page. */
+    /** How many pages came back and were billed. Present only when `pages` > 1. */
+    pages_returned?: number;
+    /** Next page number after the last page returned; omitted when there is no further page. */
     next?: number;
   };
+}
+
+/** Options for `serpLocations()`. */
+export interface SerpLocationsOptions {
+  /** Part of a location name, e.g. 'austin'. Omit to get the most populous locations. */
+  q?: string;
+  /**
+   * Maximum number of locations to return (API default: 10). Must be an
+   * integer >= 1; the server rejects values above 10 with a 400.
+   */
+  limit?: number;
+}
+
+/** One location returned by `GET /serp/locations`. */
+export interface SerpLocation {
+  /** Location id (a string), usable as `serp()`'s `location`. */
+  id: string;
+  google_id: number;
+  /** Parent geo target id; may be absent or null (e.g. for countries). */
+  google_parent_id?: number | null;
+  name: string;
+  /** Full name to pass as `serp()`'s `location`. */
+  canonical_name: string;
+  country_code: string;
+  /** e.g. 'City', 'District', 'State', 'Region', 'Country'. An open set. */
+  target_type: string;
+  /** Approximate population, used for ordering. */
+  reach: number;
+  /** Coordinates the search is sent from, as `[longitude, latitude]`. */
+  gps: [longitude: number, latitude: number];
 }
 
 /**
@@ -307,11 +396,18 @@ export class WebScrapingAI {
   }
 
   /**
-   * `GET /serp` — parsed search engine results for a query. Priced per search
-   * (see https://webscraping.ai/docs#serp); failed searches are not charged.
+   * `GET /serp` — parsed search engine results for a query. Billed per results
+   * page returned (see https://webscraping.ai/docs#serp); failed searches are
+   * not charged.
+   *
+   * Every search runs from one fixed location (`location`, `lat` + `lon` or
+   * `uule`, otherwise the capital of the `gl` country), so repeats and later
+   * pages stay consistent. Exclusivity and ranges of the location options are
+   * checked server-side (400, not billed).
    *
    * Rejects with `WebScrapingAIError` (no request sent) when `q` is empty or
-   * whitespace-only, or `page` is not an integer >= 1. `q` is sent as given.
+   * whitespace-only, `page`, `pages` or `radius` is not an integer >= 1, or
+   * `lat`/`lon` is not a finite number. `q` and `location` are sent as given.
    */
   serp(options: SerpOptions): Promise<SerpResult> {
     if (typeof options?.q !== 'string' || options.q.trim() === '') {
@@ -319,20 +415,56 @@ export class WebScrapingAI {
         new WebScrapingAIError('q is required and must be a non-empty, non-whitespace string.'),
       );
     }
-    const { q, engine, gl, hl, page, params } = options;
-    // isSafeInteger, not isInteger: 1e21 is an "integer" but serializes as
-    // "1e+21", which the server rejects with a 400 (not billed); checking
-    // client-side saves the round trip.
-    if (page !== undefined && (!Number.isSafeInteger(page) || page < 1)) {
-      return Promise.reject(new WebScrapingAIError('page must be an integer >= 1.'));
-    }
-    let extra: Params;
+    const { q, engine, gl, hl, page, pages, location, uule, lat, lon, radius, params } = options;
+    let query: Params;
     try {
-      extra = extraParams(params, ['q'], ['engine', 'gl', 'hl', 'page']);
+      // isSafeInteger, not isInteger: 1e21 is an "integer" but serializes as
+      // "1e+21", which the server rejects with a 400 (not billed); checking
+      // client-side saves the round trip.
+      checkPositiveInteger('page', page);
+      checkPositiveInteger('pages', pages);
+      checkPositiveInteger('radius', radius);
+      const extra = extraParams(
+        params,
+        ['q'],
+        ['engine', 'gl', 'hl', 'page', 'pages', 'location', 'uule', 'lat', 'lon', 'radius'],
+      );
+      query = {
+        q,
+        engine,
+        gl,
+        hl,
+        page,
+        pages,
+        location,
+        uule,
+        lat: decimalDegrees('lat', lat),
+        lon: decimalDegrees('lon', lon),
+        radius,
+        ...extra,
+      };
     } catch (err) {
       return Promise.reject(err);
     }
-    return this.get('/serp', { q, engine, gl, hl, page, ...extra }) as Promise<SerpResult>;
+    return this.get('/serp', query) as Promise<SerpResult>;
+  }
+
+  /**
+   * `GET /serp/locations` — look up names for `serp()`'s `location`. Returns up
+   * to 10 matching locations, most populous first; pass a result's
+   * `canonical_name` (or `id`) as `location`. Matches English names. Free.
+   *
+   * Rejects with `WebScrapingAIError` (no request sent) when `limit` is not an
+   * integer >= 1.
+   */
+  serpLocations(options: SerpLocationsOptions = {}): Promise<SerpLocation[]> {
+    const { q, limit } = options ?? {};
+    try {
+      checkPositiveInteger('limit', limit);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+    return this.get('/serp/locations', { q, limit }) as Promise<SerpLocation[]>;
   }
 
   /**
@@ -425,6 +557,39 @@ function extraParams(
     out[key] = value;
   }
   return out;
+}
+
+/**
+ * Throws `WebScrapingAIError` unless `value` is a safe integer >= 1.
+ * `null`/`undefined` mean "omit", as in the query encoder.
+ */
+function checkPositiveInteger(name: string, value: unknown): void {
+  if (value === undefined || value === null) return;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+    throw new WebScrapingAIError(`${name} must be an integer >= 1.`);
+  }
+}
+
+/**
+ * Formats a latitude/longitude for the wire. The server accepts only plain
+ * decimals (`-?digits(.digits)?`), and `String()` gives `1e-7` for tiny
+ * values, so this uses at most 7 fractional digits (~1 cm) with trailing
+ * zeros and a trailing `.` trimmed: `1e-7` -> `"0.0000001"`, `48` -> `"48"`.
+ * Throws `WebScrapingAIError` unless `value` is a finite number;
+ * `null`/`undefined` mean "omit".
+ */
+function decimalDegrees(name: string, value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new WebScrapingAIError(`${name} must be a finite number.`);
+  }
+  // Out-of-range values (|value| >= 1e21 stays exponential) are left for the
+  // server's free 400.
+  const fixed = value
+    .toFixed(7)
+    .replace(/(\.\d*?)0+$/, '$1')
+    .replace(/\.$/, '');
+  return fixed === '-0' ? '0' : fixed;
 }
 
 function readEnvApiKey(): string | undefined {

@@ -68,18 +68,32 @@ const info = await client.account();
 ### Search engine results (SERP)
 
 `serp()` returns parsed Google results for a query. It takes `q` (required),
-`engine` (`'google'`, the default), `gl` (country, default `'us'`), `hl`
-(language, default `'en'`) and `page` (1–100, 10 results per page; the server
-rejects values above 100 with a 400) — none of the page-scraping options apply.
-`params` passes extra scalar query parameters through as-is, with the same
-rules as `data()`'s (`api_key`, `q`, `__proto__` and the named option names
-are rejected).
-Priced per search (see [pricing](https://webscraping.ai/docs#serp)); failed searches are not charged.
+`engine` (`'google'`, the default), `gl` (country; defaults to the country of
+the location, otherwise `'us'`), `hl` (language, default `'en'`), `page`
+(1–100, 10 results per page; the server rejects values above 100 with a 400),
+`pages`, `location`, `uule`, `lat`, `lon` and `radius` — none of the
+page-scraping options apply. `params` passes extra scalar query parameters
+through as-is, with the same rules as `data()`'s (`api_key`, `q`, `__proto__`
+and the named option names are rejected).
+Billed per results page returned (see [pricing](https://webscraping.ai/docs#serp)); failed searches are not charged.
 
-The client validates before sending: an empty or whitespace-only `q`, or a
-`page` that isn't an integer >= 1, rejects with `WebScrapingAIError` and no
-request (or charge) is made. The server also rejects a bad `page` with a 400
-(not billed); checking client-side saves the round trip.
+Every search runs from one fixed location — `location`, `lat` + `lon` or
+`uule`, otherwise the capital of the `gl` country — so repeats and later pages
+are consistent, and `gl` defaults to the location's country. `location` is a
+name such as `'Austin,Texas,United States'` or `'Austin, TX'`, or an `id` from
+`serpLocations()`; an unknown name returns a 400 (not charged). `radius` (meters,
+1–1000) applies around `location` or `lat`/`lon`. `pages` (1–5) fetches
+consecutive pages starting at `page` as one de-duplicated list: `position`
+counts through the combined list, each result gets a `page` field and
+`pagination.pages_returned` says how many pages came back (and were billed).
+Combinations (`location` vs `uule` vs `lat`/`lon`, `radius` without a location)
+and ranges are checked by the server (400, not charged).
+
+The client validates before sending: an empty or whitespace-only `q`, a
+`page`, `pages` or `radius` that isn't an integer >= 1, or a `lat`/`lon` that
+isn't a finite number, rejects with `WebScrapingAIError` and no request (or
+charge) is made. `lat`/`lon` are sent as plain decimals with at most 7
+fractional digits (`1e-7` goes out as `0.0000001`).
 
 ```ts
 import { WebScrapingAI, type SerpResult } from 'webscraping-ai';
@@ -90,11 +104,28 @@ for (const r of serp.organic_results) {
   console.log(`${r.position}. ${r.title} — ${r.link}`);
 }
 const nextPage = serp.pagination.next; // undefined on the last page
+
+// Two pages of results as one list, searched from Austin, Texas
+const local = await client.serp({ q: 'coffee machines', location: 'Austin, TX', pages: 2 });
+console.log(local.search_parameters.location_used); // 'Austin,Texas,United States'
+```
+
+`serpLocations()` looks up names for `location` (free). It takes an optional
+`q` (part of an English location name) and `limit` (1–10, default 10) and
+resolves to `SerpLocation[]`, most populous first; pass a result's
+`canonical_name` (or `id`) as `location`:
+
+```ts
+const [austin] = await client.serpLocations({ q: 'austin' });
+// { id: '1026201', canonical_name: 'Austin,Texas,United States', country_code: 'US',
+//   target_type: 'City', reach: 974447, gps: [-97.7431, 30.2672], ... }
+await client.serp({ q: 'coffee machines', location: austin!.canonical_name });
 ```
 
 Optional fields (`snippet`, `date`, `related_searches`, `pagination.next`,
-`search_information.showing_results_for` / `total_results`) are omitted from
-the response when absent, not set to `null`.
+`search_information.showing_results_for` / `total_results`, and the location
+and multi-page fields) are omitted from the response when absent, not set to
+`null`.
 
 ### Structured data for supported sites (`/data`)
 
@@ -248,11 +279,12 @@ npm run lint
 npm run build      # tsup → dist/{index.js,index.cjs,index.d.ts}
 ```
 
-Live smoke (hits production, ~46 credits: page tools run with `js: false` and
-the datacenter proxy at 1 credit each, question/fields at 6 each, SERP at 15,
-one YouTube `/data` call at 15, plus a free `/data` call on example.com that
-must come back as a server-side 400; each case asserts on the result shape and
-the script exits non-zero on any failure):
+Live smoke (hits production and uses credits: the account call, four page
+calls with `js: false` and the datacenter proxy, `question` and `fields`, two
+SERP searches (one plain, one two-page Austin, TX search billed per page
+returned), a free `serpLocations()` lookup, one YouTube `/data` call, plus a
+free `/data` call on example.com that must come back as a server-side 400; each
+case asserts on the result shape and the script exits non-zero on any failure):
 
 ```bash
 WEBSCRAPING_AI_API_KEY=... npm run smoke

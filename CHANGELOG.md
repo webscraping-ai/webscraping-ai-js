@@ -2,7 +2,16 @@
 
 All notable changes to `webscraping-ai` will be documented in this file.
 
-## Unreleased
+## 4.3.0 — 2026-10-24
+
+### Added
+
+- `serp()` takes new optional `pages`, `location`, `uule`, `lat`, `lon` and `radius` options. Every search runs from one fixed location (`location`, `lat` + `lon` or `uule`, otherwise the capital of the `gl` country), so repeats and later pages are consistent; `gl` defaults to the location's country. `location` is a name (`'Austin,Texas,United States'`, `'Austin, TX'`) or an id from `serpLocations()`, sent as given. `pages` (1–5) fetches consecutive pages as one de-duplicated list, billed per results page returned (see https://webscraping.ai/docs#serp).
+- `serp()` validates the new options before sending: `pages` or `radius` that isn't a safe integer >= 1, or `lat`/`lon` that isn't a finite number, rejects with `WebScrapingAIError` and no request is made. Combinations and ranges stay server-side (400, not charged). `lat`/`lon` are sent as plain decimals with at most 7 fractional digits (`1e-7` → `0.0000001`, `48` → `48`), since the server rejects exponent notation.
+- `serpLocations({ q?, limit? })` for the new `GET /serp/locations` endpoint (free): look up names for `location`, most populous first. Resolves to the new exported `SerpLocation[]` (`id`, `google_id`, `google_parent_id`, `name`, `canonical_name`, `country_code`, `target_type`, `reach`, `gps` as `[longitude, latitude]`); `SerpLocationsOptions` is exported too. A `limit` that isn't a safe integer >= 1 rejects with `WebScrapingAIError`.
+- `SerpResult` gains the optional `search_parameters.pages` / `location_requested` / `location_used` / `lat` / `lon` / `radius`, `organic_results[].page` and `pagination.pages_returned`. With `pages` > 1, `position` counts through the combined list.
+- The `serp()` `params` escape hatch also rejects the new option names (`pages`, `location`, `uule`, `lat`, `lon`, `radius`).
+- `bin/smoke.ts` adds a two-page `location: 'Austin, TX'` search (asserts non-empty `organic_results` and `location_used` containing `Austin`) and a `serpLocations({ q: 'austin', limit: 3 })` lookup.
 
 ### Changed
 
