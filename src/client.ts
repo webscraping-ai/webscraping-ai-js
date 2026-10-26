@@ -262,38 +262,34 @@ export interface SerpLocation {
 export type ExtraParamValue = string | number | boolean | null | undefined;
 
 /**
- * Options for `data()`. URL-shaped, but none of the page-scraping options in
- * `CommonRequestOptions` apply to `/data` (the server picks fetching, proxy
- * and parsing per site).
+ * Options for `data()`. URL-shaped; the page-scraping options in
+ * `CommonRequestOptions` are not exposed for `data()`.
  */
 export interface DataOptions {
   /**
-   * URL of a page on a supported site, e.g. a YouTube video, TikTok profile,
-   * X post, LinkedIn company, Instagram reel or Reddit thread. Required; must
-   * be a non-blank string, and is sent exactly as given. It is **not**
-   * checked against a list of sites: more are added server-side. An
-   * unsupported URL or page type returns a 400 (`BadRequestError`) that is
-   * not charged; its message lists what is supported.
+   * URL of any public web page, e.g.
+   * `https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html`.
+   * Required; must be a non-blank string, and is sent exactly as given.
    */
   url: string;
   /** Two-letter country code of the proxy used to fetch the page, `us` by default. */
   country?: string;
   /**
-   * YouTube videos only. Also fetch the video's transcript into
+   * Video pages on sites with a dedicated parser only. Also fetch the video's transcript into
    * `data.transcript`. It's null when no matching captions are available. If
    * the transcript fetch itself fails, the whole request fails with a 500
    * (`ServerError`) and is not charged.
    */
   transcript?: boolean;
   /**
-   * Caption language to pick, e.g. `en` or `de`. Without it, English is
+   * With `transcript: true`, the caption language to pick, e.g. `en` or `de`. Without it, English is
    * preferred, then the first available track. If the video has no captions
    * in that language, `data.transcript` is null.
    */
   transcript_language?: string;
   /**
-   * Extra query parameters sent as-is, for site-specific options added
-   * server-side after this SDK version. Values must be strings, finite
+   * Extra query parameters sent as-is, for options added server-side after
+   * this SDK version. Values must be strings, finite
    * numbers or booleans (`null`/`undefined` are omitted). `api_key`, `url`,
    * `__proto__` and the named options above (`country`, `transcript`,
    * `transcript_language`) are rejected: use the named option instead.
@@ -304,9 +300,9 @@ export interface DataOptions {
 /** How `/data` classified the requested URL. */
 export interface DataRequestParameters {
   url: string;
-  /** Detected site, e.g. 'youtube'. An open set: new sites are added server-side. */
+  /** The site the page belongs to, e.g. 'toscrape.com'. An open set. */
   provider: string;
-  /** Detected page kind, e.g. 'video', 'profile'. Also an open set. */
+  /** The kind of page, e.g. 'product'. Also an open set. */
   type: string;
 }
 
@@ -468,15 +464,23 @@ export class WebScrapingAI {
   }
 
   /**
-   * `GET /data` — structured JSON for a page on a supported site (e.g.
-   * YouTube, TikTok, X, LinkedIn, Instagram, Reddit; more are added
-   * server-side). Priced per site (see https://webscraping.ai/docs#data),
-   * including `parse_failed` and `not_found` results; unsupported URLs and
-   * failed fetches are not charged.
+   * `GET /data` — structured JSON for any public web page. Some popular
+   * sites have dedicated parsers with fixed fields; for other sites an AI
+   * model learns each new kind of page once. Pricing:
+   * https://webscraping.ai/docs#data. `parse_failed` and `not_found` results
+   * are charged; failed fetches are not.
    *
-   * The URL is sent unmodified and never checked against a list of sites.
-   * An unsupported URL or page type returns a 400 (`BadRequestError`) that is
-   * not charged; its message lists what is supported.
+   * The first request for a new kind of page also learns its structure, so
+   * it can take up to about 45 seconds (keep `timeoutMs` above that). When
+   * learning takes longer, or another request is already learning that
+   * site, the API returns HTTP 503 with
+   * `{ message, error_code: 'structure_processing', retry_after }` (not
+   * charged), which rejects with a generic `APIError` (`status` 503;
+   * `error_code` and `retry_after` are in the JSON `responseBody`): retry
+   * after `retry_after` seconds, which can return data. When no structured data can be found (empty
+   * page, login wall) the API returns a 422 `structure_unavailable` (not
+   * charged), which rejects with a generic `APIError` (`status` 422); use
+   * `fields()` for such pages.
    *
    * Rejects with `WebScrapingAIError` (no request sent) when `url` is not a
    * non-blank string, or `params` has a reserved/named key or a value that

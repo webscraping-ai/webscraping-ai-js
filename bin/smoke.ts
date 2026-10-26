@@ -2,13 +2,15 @@
 /**
  * Hand-run smoke test against the live API. Not part of the test suite.
  *
- * Costs ~76 credits per full sweep: account (free), 4 page calls
- * (html/text/selected/selected_multiple) with js=false + datacenter proxy at
- * 1 credit each, question + fields at 6 each (datacenter, no JS), one SERP
- * search at 15, a two-page located SERP search at 2 x 15, a free
- * /serp/locations lookup and one /data call at 15 -> 4 + 12 + 15 + 30 + 15 =
- * 76. The second /data case (example.com) is a free 400: it proves the
- * *server*, not the client, rejects unsupported sites.
+ * Uses real credits (see https://webscraping.ai/docs for pricing): account
+ * (free), 4 page calls (html/text/selected/selected_multiple) and question +
+ * fields with js=false + datacenter proxy to keep the cost down, one SERP
+ * search, a two-page located SERP search (billed per page returned), a free
+ * /serp/locations lookup and one /data call. The second /data case
+ * (example.com, a site without a dedicated parser) is not charged when
+ * learning its structure outlasts the request (503), when nothing is found
+ * (422) or when extracting the data or loading the page runs out of time (a
+ * 500 timeout); otherwise it is a normal, charged success.
  *
  * Each case asserts on the shape of the result, not just the absence of an
  * exception; any failure prints a FAIL line and the script exits 1.
@@ -19,7 +21,7 @@
  *   WEBSCRAPING_AI_API_KEY=... npx tsx bin/smoke.ts
  */
 
-import { BadRequestError, WebScrapingAI } from '../src/index.js';
+import { APIError, WebScrapingAI } from '../src/index.js';
 
 const apiKey = process.env.WEBSCRAPING_AI_API_KEY ?? process.env.WEBSCRAPING_AI_KEY;
 if (!apiKey) {
@@ -35,20 +37,60 @@ const page = { js: false, proxy: 'datacenter' } as const;
 type Check = (result: unknown) => string | null;
 
 /**
- * Wraps a call that the server must reject with a 400. Resolves to a
- * "400 ..." string on a `BadRequestError`; a success resolves to the raw
- * result (which the check then fails) and any other error propagates.
+ * Wraps a /data call on a site without a dedicated parser. A 503, 422 or 500
+ * is an `APIError`; it resolves to `{ status, body }` (body parsed from the response
+ * JSON) so the check can inspect `error_code`. Any other error propagates.
  */
-async function expectBadRequest(call: () => Promise<unknown>): Promise<unknown> {
+async function captureDataError(call: () => Promise<unknown>): Promise<unknown> {
   try {
     return await call();
   } catch (err) {
-    if (err instanceof BadRequestError && err.status === 400) {
-      return `400 BadRequestError: ${err.message}`;
+    if (
+      err instanceof APIError &&
+      (err.status === 503 || err.status === 422 || err.status === 500)
+    ) {
+      let body: unknown = null;
+      try {
+        body = JSON.parse(err.responseBody ?? err.body ?? 'null');
+      } catch {
+        body = err.responseBody ?? err.body;
+      }
+      return { status: err.status, body };
     }
     throw err;
   }
 }
+
+/**
+ * Accepts a success envelope (`request_parameters` present), a 503 with
+ * `error_code: "structure_processing"`, a 422 with
+ * `error_code: "structure_unavailable"`, or a 500 with `error_code: "timeout"`.
+ */
+const anySiteData: Check = (r) => {
+  if (r === null || typeof r !== 'object') return 'expected an object';
+  const o = r as {
+    request_parameters?: unknown;
+    status?: unknown;
+    body?: { error_code?: unknown } | null;
+  };
+  if (o.status === 503) {
+    return o.body?.error_code === 'structure_processing'
+      ? null
+      : `503 with error_code ${JSON.stringify(o.body?.error_code)}, expected "structure_processing"`;
+  }
+  if (o.status === 422) {
+    return o.body?.error_code === 'structure_unavailable'
+      ? null
+      : `422 with error_code ${JSON.stringify(o.body?.error_code)}, expected "structure_unavailable"`;
+  }
+  if (o.status === 500) {
+    return o.body?.error_code === 'timeout'
+      ? null
+      : `500 with error_code ${JSON.stringify(o.body?.error_code)}, expected "timeout"`;
+  }
+  if (o.request_parameters !== undefined && o.request_parameters !== null) return null;
+  return 'expected request_parameters, a 503 "structure_processing", a 422 "structure_unavailable" or a 500 "timeout"';
+};
 
 function nonEmpty(value: unknown): boolean {
   if (typeof value === 'string') return value.trim() !== '';
@@ -154,12 +196,9 @@ const cases: Array<[string, () => Promise<unknown>, Check]> = [
     },
   ],
   [
-    'data_unsupported',
-    () => expectBadRequest(() => client.data({ url: 'https://example.com/' })),
-    (r) =>
-      typeof r === 'string' && r.startsWith('400 ') && r.includes('Unsupported URL')
-        ? null
-        : 'expected the server to answer 400 (BadRequestError) with "Unsupported URL"',
+    'data_any_site',
+    () => captureDataError(() => client.data({ url: 'https://example.com/' })),
+    anySiteData,
   ],
 ];
 

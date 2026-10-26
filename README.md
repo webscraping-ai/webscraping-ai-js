@@ -57,9 +57,11 @@ const fields = await client.fields({
   fields: { title: 'Main product title', price: 'Current product price' },
 });
 
-// Structured data for a page on a supported site (YouTube, TikTok, X, LinkedIn, Instagram, Reddit, ...)
-const video = await client.data({ url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' });
-console.log(video.request_parameters.provider, video.data?.title);
+// Structured data for any public web page
+const page = await client.data({
+  url: 'https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html',
+});
+console.log(page.request_parameters.provider, page.data); // toscrape.com { title: 'A Light in the Attic', ... }
 
 // Account quota
 const info = await client.account();
@@ -127,64 +129,96 @@ Optional fields (`snippet`, `date`, `related_searches`, `pagination.next`,
 and multi-page fields) are omitted from the response when absent, not set to
 `null`.
 
-### Structured data for supported sites (`/data`)
+### Structured data for any page (`/data`)
 
-`data()` returns structured JSON for a public page on a supported site — for
-example a YouTube video, TikTok profile, X post, LinkedIn company, Instagram
-reel or Reddit thread. Pass the page's normal URL; the site (`provider`) and
-page kind (`type`) are detected server-side. More sites and page types are
-added on the server over time, so the client does **not** check the URL
-against a list and sends it exactly as given. An unsupported URL or page type
-returns a 400 (`BadRequestError`) that is not charged; its message lists what
-is supported. The only client-side check is that `url` is a non-blank string.
+`data()` returns structured JSON for any public web page. Pass the page's
+normal URL; the site (`provider`, e.g. `toscrape.com`) and the kind of page
+(`type`, e.g. `product`) are detected server-side. Some popular sites have
+dedicated parsers with fixed fields; for other sites, an AI model learns the
+structure of each new kind of page once, and from then on pages of that kind
+on that site return data straight away for every user. The client sends the
+URL exactly as given; the only client-side check is that `url` is a non-blank
+string.
 
 Options:
 
 - `url` (required).
 - `country`: two-letter country code of the proxy used to fetch the page, `us`
   by default.
-- `transcript`: YouTube videos only. Also fetch the video's transcript into
-  `data.transcript`. It's null when no matching captions are available. If the
-  transcript fetch itself fails, the whole request fails with a 500
-  (`ServerError`) and is not charged.
-- `transcript_language`: caption language to pick, e.g. `en` or `de`. Without
-  it, English is preferred, then the first available track. If the video has
-  no captions in that language, `data.transcript` is null.
-- `params`: escape hatch for site-specific parameters added after this SDK
-  version, sent as-is. Values must be strings, finite numbers or booleans
+- `transcript`: video pages on sites with a dedicated parser only. Also fetch
+  the video's transcript into `data.transcript`. It's null when no matching
+  captions are available. If the transcript fetch itself fails, the whole
+  request fails with a 500 (`ServerError`) and is not charged.
+- `transcript_language`: with `transcript: true`, the caption language to
+  pick, e.g. `en` or `de`. Without it, English is preferred, then the first
+  available track. If the video has no captions in that language,
+  `data.transcript` is null.
+- `params`: escape hatch for parameters added after this SDK version, sent
+  as-is. Values must be strings, finite numbers or booleans
   (`null`/`undefined` are omitted). `api_key`, `url`, `__proto__` and the
   named option names (`country`, `transcript`, `transcript_language`) are
   rejected with `WebScrapingAIError`: use the named option instead.
 
-None of the page-scraping options apply. Priced per site (see
-[pricing](https://webscraping.ai/docs#data)), including pages that parse empty
-(`parse_failed`) or no longer exist (`not_found`); unsupported URLs and failed
-fetches are not charged.
+Charged results include pages that parse empty (`parse_failed`) or no longer
+exist (`not_found`); failed fetches are not charged. See
+[pricing](https://webscraping.ai/docs#data).
+
+The first request for a new kind of page also learns its structure, so it can
+take up to about 45 seconds; keep the client's `timeoutMs` (60 seconds by
+default) above that. Two error responses need handling on pages without a
+dedicated parser, and neither is charged:
+
+- **503 `structure_processing`**: learning the page's structure took longer
+  than the request, or another request is already learning that site. The body is `{"message": "...", "error_code":
+"structure_processing", "retry_after": 30}` (plus a `Retry-After` header).
+  `data()` rejects with a generic `APIError` (`status` 503; `error_code` and
+  `retry_after` are in the JSON `responseBody`). Retry after `retry_after`
+  seconds; the retry can return data (if learning failed meanwhile, it
+  may learn again or return the 422 below).
+- **422 `structure_unavailable`**: no structured data could be found (empty
+  page, login wall). `data()` rejects with a generic `APIError` (`status`
+  422; `error_code` is in the JSON `responseBody`). Use `fields()`
+  (`/ai/fields`) for such pages instead.
+
+Redirects within the same site (http→https, `www`, trailing slash) are
+followed; a redirect to another site fails with a 500 (`ServerError`,
+`error_code` `target_redirect`, the target in the message), not charged.
+Starting too many new kinds of pages in an hour returns a 429
+(`RateLimitError`, `error_code` `rate_limited`).
 
 ```ts
-import { WebScrapingAI, BadRequestError, type DataResult } from 'webscraping-ai';
+import { WebScrapingAI, APIError, type DataResult } from 'webscraping-ai';
 
-const video: DataResult = await client.data({
-  url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-  transcript: true,
-});
-console.log(video.request_parameters.provider, video.request_parameters.type); // youtube video
-if (video.parse_status === 'ok') console.log(video.data?.title);
+const url = 'https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html';
 
-// Narrow `data` with your own type (it is untyped JSON; the shape depends on provider/type):
-const post = await client.data<{ title: string; score: number }>({
-  url: 'https://www.reddit.com/r/programming/comments/abc123/example/',
-});
+async function getData(): Promise<DataResult> {
+  try {
+    return await client.data({ url });
+  } catch (err) {
+    if (!(err instanceof APIError) || err.status !== 503) throw err;
+    // structure_processing: wait retry_after seconds, then try once more
+    const { retry_after = 30 } = JSON.parse(err.responseBody ?? '{}') as { retry_after?: number };
+    await new Promise((r) => setTimeout(r, retry_after * 1000));
+    return client.data({ url });
+  }
+}
 
 try {
-  await client.data({ url: 'https://example.com/' });
+  const page = await getData();
+  console.log(page.request_parameters.provider, page.request_parameters.type); // toscrape.com product
+  if (page.parse_status === 'ok') console.log(page.data); // { title: 'A Light in the Attic', price: 51.77, currency: 'GBP', ... }
 } catch (err) {
-  if (err instanceof BadRequestError) console.log(err.message); // "Unsupported URL for /data. ..." (lists what is supported)
+  if (err instanceof APIError && err.status === 422) {
+    // structure_unavailable: fall back to client.fields(...)
+  } else throw err;
 }
+
+// Narrow `data` with your own type (it is untyped JSON; the shape depends on provider/type):
+const book = await client.data<{ title: string; price: number; currency: string }>({ url });
 ```
 
-`provider`, `type` and `parse_status` are plain strings (new values appear as
-sites are added), and `data` is `null` when nothing could be parsed.
+`provider`, `type` and `parse_status` are plain strings (open sets), and
+`data` is `null` when nothing could be parsed.
 
 The constructor reads `WEBSCRAPING_AI_API_KEY` from the environment as a
 fallback when running on Node, Deno, or Bun:
@@ -279,12 +313,14 @@ npm run lint
 npm run build      # tsup → dist/{index.js,index.cjs,index.d.ts}
 ```
 
-Live smoke (hits production and uses credits: the account call, four page
-calls with `js: false` and the datacenter proxy, `question` and `fields`, two
-SERP searches (one plain, one two-page Austin, TX search billed per page
-returned), a free `serpLocations()` lookup, one YouTube `/data` call, plus a
-free `/data` call on example.com that must come back as a server-side 400; each
-case asserts on the result shape and the script exits non-zero on any failure):
+Live smoke (hits production and uses real credits: page tools run with
+`js: false` and the datacenter proxy to keep the cost down; two SERP searches
+(one plain, one two-page Austin, TX search billed per page returned), a free
+`serpLocations()` lookup, one `/data` call on a page on a site with a
+dedicated parser, plus a `/data` call on example.com that must return a
+success envelope, a 503 `structure_processing` or a 422
+`structure_unavailable` (the last two are not charged); each case asserts on
+the result shape and the script exits non-zero on any failure):
 
 ```bash
 WEBSCRAPING_AI_API_KEY=... npm run smoke
