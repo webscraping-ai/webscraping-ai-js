@@ -64,7 +64,8 @@ async function captureDataError(call: () => Promise<unknown>): Promise<unknown> 
 /**
  * Accepts a success envelope (`request_parameters` present), a 503 with
  * `error_code: "structure_processing"`, a 422 with
- * `error_code: "structure_unavailable"`, or a 500 with `error_code: "timeout"`.
+ * `error_code: "structure_unavailable"`, or a 500 with `error_code: "timeout"`
+ * or `"ai_unavailable"`.
  */
 const anySiteData: Check = (r) => {
   if (r === null || typeof r !== 'object') return 'expected an object';
@@ -84,12 +85,12 @@ const anySiteData: Check = (r) => {
       : `422 with error_code ${JSON.stringify(o.body?.error_code)}, expected "structure_unavailable"`;
   }
   if (o.status === 500) {
-    return o.body?.error_code === 'timeout'
+    return o.body?.error_code === 'timeout' || o.body?.error_code === 'ai_unavailable'
       ? null
-      : `500 with error_code ${JSON.stringify(o.body?.error_code)}, expected "timeout"`;
+      : `500 with error_code ${JSON.stringify(o.body?.error_code)}, expected "timeout" or "ai_unavailable"`;
   }
   if (o.request_parameters !== undefined && o.request_parameters !== null) return null;
-  return 'expected request_parameters, a 503 "structure_processing", a 422 "structure_unavailable" or a 500 "timeout"';
+  return 'expected request_parameters, a 503 "structure_processing", a 422 "structure_unavailable" or a 500 "timeout"/"ai_unavailable"';
 };
 
 function nonEmpty(value: unknown): boolean {

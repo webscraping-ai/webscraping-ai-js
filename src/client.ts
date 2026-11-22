@@ -30,16 +30,20 @@ export interface ClientOptions {
 export interface CommonRequestOptions {
   /** Custom HTTP headers to forward to the target page. */
   headers?: Record<string, string>;
-  /** Maximum page-retrieval time in ms (API default: 10000, max 30000). */
+  /** Maximum page-retrieval time in ms (API default: 10000, max 25000; larger values are capped). */
   timeout?: number;
   /** Execute on-page JavaScript via a headless browser (API default: true). */
   js?: boolean;
-  /** Max JS rendering time in ms after page load (API default: 2000). */
+  /** Max JS rendering time in ms after page load (API default: 2000, max 20000). */
   js_timeout?: number;
   /** CSS selector to wait for before returning the page content. */
   wait_for?: string;
-  /** Proxy pool: 'datacenter' | 'residential' | 'stealth'. */
-  proxy?: 'datacenter' | 'residential' | 'stealth';
+  /**
+   * Proxy pool: 'datacenter' (API default) | 'residential' | 'stealth' | 'auto'.
+   * 'auto' tries datacenter, then residential, then stealth in one request and
+   * bills only the tier that worked; it can't be combined with `custom_proxy`.
+   */
+  proxy?: 'datacenter' | 'residential' | 'stealth' | 'auto';
   /** Country of the proxy IP (e.g. 'us', 'gb'). */
   country?: string;
   /** Custom proxy URL: 'http://user:password@host:port'. */
@@ -58,7 +62,7 @@ export interface HtmlOptions extends CommonRequestOptions {
   url: string;
   /** Return the value returned by `js_script` instead of the rendered HTML. */
   return_script_result?: boolean;
-  /** Response wrapping: 'json' wraps under `{html: "..."}`. */
+  /** Response wrapping: 'json' wraps under `{result: "..."}`. */
   format?: 'json' | 'text';
 }
 
@@ -70,7 +74,10 @@ export interface TextOptions extends CommonRequestOptions {
 
 export interface SelectedOptions extends CommonRequestOptions {
   url: string;
-  /** CSS selector of the area to return. Omit to return the whole-page HTML. */
+  /**
+   * CSS selector of the area to return. Without one, or if it matches
+   * nothing, the API fails with a 400 "Element not found".
+   */
   selector?: string;
   format?: 'json' | 'text';
 }
@@ -272,7 +279,12 @@ export interface DataOptions {
    * Required; must be a non-blank string, and is sent exactly as given.
    */
   url: string;
-  /** Two-letter country code of the proxy used to fetch the page, `us` by default. */
+  /**
+   * Two-letter country code of the proxy used to fetch the page. Without it, a
+   * page on a country site with a dedicated parser (e.g. uk.indeed.com) uses
+   * that site's country and everything else uses `us`. Some dedicated parsers
+   * use a fixed route and ignore it.
+   */
   country?: string;
   /**
    * Video pages on sites with a dedicated parser only. Also fetch the video's transcript into
@@ -383,9 +395,9 @@ export class WebScrapingAI {
   /**
    * `GET /ai/fields` — structured fields extracted from a page.
    *
-   * **Response-shape note:** the API currently wraps the extracted fields
-   * under a `result` key: `{ result: { title: '...', price: '...' } }`. The
-   * client returns this raw shape.
+   * The response wraps the extracted fields under a `result` key, every value
+   * a string or null: `{ result: { title: '...', price: null } }`. The client
+   * returns this raw shape.
    */
   fields(options: FieldsOptions): Promise<unknown> {
     return this.get('/ai/fields', options);
