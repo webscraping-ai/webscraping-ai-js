@@ -187,7 +187,7 @@ followed; a redirect to another site fails with a 500 (`ServerError`,
 `error_code` `target_redirect`, the target in the message), not charged.
 Starting too many new kinds of pages in an hour returns a 429
 (`RateLimitError`, `error_code` `rate_limited`). A 500 (`ServerError`) with
-`error_code` `timeout` (the fetch timed out) or `ai_unavailable` (the AI model
+`error_code` `timeout` (loading the page or extracting the data ran out of time) or `ai_unavailable` (the AI model
 is busy) is not charged either; retry it.
 
 ```ts
