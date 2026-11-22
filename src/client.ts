@@ -281,9 +281,9 @@ export interface DataOptions {
   url: string;
   /**
    * Two-letter country code of the proxy used to fetch the page. Without it, a
-   * page on a country site with a dedicated parser (e.g. uk.indeed.com) uses
-   * that site's country and everything else uses `us`. Some dedicated parsers
-   * use a fixed route and ignore it.
+   * page on an Indeed country site (e.g. uk.indeed.com) uses that site's
+   * country and everything else uses `us`. Some dedicated parsers use a fixed
+   * route and ignore it.
    */
   country?: string;
   /**

@@ -144,9 +144,9 @@ Options:
 
 - `url` (required).
 - `country`: two-letter country code of the proxy used to fetch the page.
-  Without it, a page on a country site with a dedicated parser (e.g.
-  `uk.indeed.com`) uses that site's country and everything else uses `us`.
-  Some dedicated parsers use a fixed route and ignore it.
+  Without it, a page on an Indeed country site (e.g. `uk.indeed.com`) uses
+  that site's country and everything else uses `us`. Some dedicated parsers
+  use a fixed route and ignore it.
 - `transcript`: video pages on sites with a dedicated parser only. Also fetch
   the video's transcript into `data.transcript`. It's null when no matching
   captions are available. If the transcript fetch itself fails, the whole

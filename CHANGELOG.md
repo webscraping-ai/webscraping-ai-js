@@ -10,7 +10,7 @@ All notable changes to `webscraping-ai` will be documented in this file.
 - Docs: `timeout` max is 25000 ms (larger values are capped), not 30000; `js_timeout` max is 20000 ms.
 - Docs: `format: 'json'` wraps the body as `{result: ...}`, not `{html: ...}`.
 - Docs: `selected()` without a selector, or with one that matches nothing, fails with a 400 "Element not found"; it never returns the whole page.
-- Docs: `data()` `country` has no fixed `us` default: pages on a country site with a dedicated parser (e.g. uk.indeed.com) use that site's country, everything else `us`.
+- Docs: `data()` `country` has no fixed `us` default: Indeed country sites (e.g. uk.indeed.com) use that site's country, everything else `us`.
 - Docs: `/ai/fields` `{result: {...}}` shape (values are strings or null) is documented in the spec now; it's no longer described as a divergence.
 - Docs: `/data` lists the retryable, uncharged 500 `timeout` and `ai_unavailable` errors; the books.toscrape.com example now shows type `book` and currency `£`.
 - `bin/smoke.ts`: the any-site `/data` check also accepts a 500 `ai_unavailable`.
