@@ -5,8 +5,8 @@
 
 Official JavaScript / TypeScript client for the [WebScraping.AI](https://webscraping.ai)
 API — web scraping with Chromium JavaScript rendering, rotating
-datacenter/residential/stealth proxies, and AI-powered question answering and
-structured field extraction on any page. See the
+datacenter/residential/stealth proxies (or `auto` to escalate through them), and
+AI-powered question answering and structured field extraction on any page. See the
 [API documentation](https://webscraping.ai/docs) for the full parameter reference.
 
 ## Install
@@ -143,8 +143,10 @@ string.
 Options:
 
 - `url` (required).
-- `country`: two-letter country code of the proxy used to fetch the page, `us`
-  by default.
+- `country`: two-letter country code of the proxy used to fetch the page.
+  Without it, a page on an Indeed country site (e.g. `uk.indeed.com`) uses
+  that site's country and everything else uses `us`. Some dedicated parsers
+  use a fixed route and ignore it.
 - `transcript`: video pages on sites with a dedicated parser only. Also fetch
   the video's transcript into `data.transcript`. It's null when no matching
   captions are available. If the transcript fetch itself fails, the whole
@@ -184,7 +186,9 @@ Redirects within the same site (http→https, `www`, trailing slash) are
 followed; a redirect to another site fails with a 500 (`ServerError`,
 `error_code` `target_redirect`, the target in the message), not charged.
 Starting too many new kinds of pages in an hour returns a 429
-(`RateLimitError`, `error_code` `rate_limited`).
+(`RateLimitError`, `error_code` `rate_limited`). A 500 (`ServerError`) with
+`error_code` `timeout` (loading the page or extracting the data ran out of time) or `ai_unavailable` (the AI model
+is busy) is not charged either; retry it.
 
 ```ts
 import { WebScrapingAI, APIError, type DataResult } from 'webscraping-ai';
@@ -205,8 +209,8 @@ async function getData(): Promise<DataResult> {
 
 try {
   const page = await getData();
-  console.log(page.request_parameters.provider, page.request_parameters.type); // toscrape.com product
-  if (page.parse_status === 'ok') console.log(page.data); // { title: 'A Light in the Attic', price: 51.77, currency: 'GBP', ... }
+  console.log(page.request_parameters.provider, page.request_parameters.type); // toscrape.com book
+  if (page.parse_status === 'ok') console.log(page.data); // { title: 'A Light in the Attic', price: 51.77, currency: '£', ... }
 } catch (err) {
   if (err instanceof APIError && err.status === 422) {
     // structure_unavailable: fall back to client.fields(...)
@@ -292,16 +296,13 @@ target-page errors as a 500.
 
 ## Response shapes
 
-The client returns the response body verbatim. Two endpoints currently return
-shapes that differ from the OpenAPI examples — flagged here so you know what
-to expect:
+The client returns the response body verbatim. Two shapes worth knowing:
 
-- **`fields`** wraps the extracted fields under `result`:
-  `{ result: { title: '...', price: '...' } }`.
+- **`fields`** wraps the extracted fields under `result`, every value a string
+  or null: `{ result: { title: '...', price: null } }`.
 - **`selectedMultiple`** returns `string[][]`, not the flat `string[]` the
-  spec implies.
-
-These are upstream (spec/server) drifts; every official SDK reproduces them.
+  spec implies. This is an upstream (spec/server) drift; every official SDK
+  reproduces it.
 
 ## Development
 
@@ -318,8 +319,9 @@ Live smoke (hits production and uses real credits: page tools run with
 (one plain, one two-page Austin, TX search billed per page returned), a free
 `serpLocations()` lookup, one `/data` call on a page on a site with a
 dedicated parser, plus a `/data` call on example.com that must return a
-success envelope, a 503 `structure_processing` or a 422
-`structure_unavailable` (the last two are not charged); each case asserts on
+success envelope, a 503 `structure_processing`, a 422
+`structure_unavailable` or a 500 `timeout`/`ai_unavailable` (the errors are
+not charged); each case asserts on
 the result shape and the script exits non-zero on any failure):
 
 ```bash

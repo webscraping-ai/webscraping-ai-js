@@ -84,6 +84,14 @@ describe('endpoint methods', () => {
     expect(url.searchParams.get('js')).toBe('false');
   });
 
+  it('html: accepts proxy auto', async () => {
+    const { fn, calls } = fakeFetch(textResponse('<html></html>'));
+    const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
+    await client.html({ url: 'https://example.com', proxy: 'auto' });
+
+    expect(calls[0]!.url.searchParams.get('proxy')).toBe('auto');
+  });
+
   it('text: forwards text_format and return_links', async () => {
     const { fn, calls } = fakeFetch(jsonResponse({ title: 'T', content: 'C' }));
     const client = new WebScrapingAI({ apiKey: API_KEY, fetch: fn });
